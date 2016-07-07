@@ -56,9 +56,11 @@ struct mos6502 : ASMLine
   {
     unknown,
     lda,
+    eor,
     sta,
     pha,
     pla,
+    lsr,
     AND,
     cmp,
     bne,
@@ -74,9 +76,11 @@ struct mos6502 : ASMLine
       case OpCode::bne:
         return true;
       case OpCode::lda:
+      case OpCode::eor:
       case OpCode::sta:
       case OpCode::pha:
       case OpCode::pla:
+      case OpCode::lsr:
       case OpCode::AND:
       case OpCode::cmp:
       case OpCode::jmp:
@@ -91,9 +95,11 @@ struct mos6502 : ASMLine
       case OpCode::cmp:
         return true;
       case OpCode::lda:
+      case OpCode::eor:
       case OpCode::sta:
       case OpCode::pha:
       case OpCode::pla:
+      case OpCode::lsr:
       case OpCode::AND:
       case OpCode::jmp:
       case OpCode::bne:
@@ -124,27 +130,31 @@ struct mos6502 : ASMLine
   {
     switch (o) {
       case OpCode::lda:
-        return "\tlda";
+        return "lda";
+      case OpCode::eor:
+        return "eor";
       case OpCode::sta:
-        return "\tsta";
+        return "sta";
       case OpCode::pha:
-        return "\tpha";
+        return "pha";
       case OpCode::pla:
-        return "\tpla";
+        return "pla";
+      case OpCode::lsr:
+        return "lsr";
       case OpCode::AND:
-        return "\tand";
+        return "and";
       case OpCode::cmp:
-        return "\tcmp";
+        return "cmp";
       case OpCode::bne:
-        return "\tbne";
+        return "bne";
       case OpCode::beq:
-        return "\tbeq";
+        return "beq";
       case OpCode::jmp:
-        return "\tjmp";
+        return "jmp";
       case OpCode::adc:
-        return "\tadc";
+        return "adc";
       case OpCode::sbc:
-        return "\tsbc";
+        return "sbc";
       case OpCode::unknown:
         return "";
     };
@@ -182,6 +192,8 @@ struct i386 : ASMLine
     andl,
     ret,
     movb,
+    cmpb,
+    movl,
     jmp,
     jne,
     je,
@@ -207,6 +219,8 @@ struct i386 : ASMLine
           if (o == "andl") return OpCode::andl;
           if (o == "ret") return OpCode::ret;
           if (o == "movb") return OpCode::movb;
+          if (o == "cmpb") return OpCode::cmpb;
+          if (o == "movl") return OpCode::movl;
           if (o == "jmp") return OpCode::jmp;
           if (o == "testb") return OpCode::testb;
           if (o == "jne") return OpCode::jne;
@@ -221,7 +235,7 @@ struct i386 : ASMLine
   static Operand parse_operand(std::string o)
   {
     if (o.empty()) {
-      throw std::runtime_error("Empty operand?!");
+      return Operand();
     }
 
     if (o[0] == '%') {
@@ -229,6 +243,10 @@ struct i386 : ASMLine
         return Operand(Operand::Type::reg, 1);
       } else if (o == "%al") {
         return Operand(Operand::Type::reg, 1);
+      } else if (o == "%edx") {
+        return Operand(Operand::Type::reg, 4);
+      } else if (o == "%dl") {
+        return Operand(Operand::Type::reg, 4);
       } else if (o == "%di") {
         return Operand(Operand::Type::reg, 6);
       } else {
@@ -239,23 +257,14 @@ struct i386 : ASMLine
     }
   }
 
-  i386(Type t, std::string o1)
-    : ASMLine(t, o1), opcode(parse_opcode(t, o1))
+  i386(const int t_line_num, const std::string t_line_text, Type t, std::string opcode, std::string o1="", std::string o2="")
+    : ASMLine(t, opcode), line_num(t_line_num), line_text(std::move(t_line_text)), 
+      opcode(parse_opcode(t, opcode)), operand1(parse_operand(std::move(o1))), operand2(parse_operand(std::move(o2)))
   {
   }
 
-  i386(Type t, std::string opcode, std::string o1)
-    : ASMLine(t, opcode), opcode(parse_opcode(t, opcode)), operand1(parse_operand(std::move(o1)))
-  {
-  }
-
-  i386(Type t, std::string opcode, std::string o1, std::string o2)
-    : ASMLine(t, opcode), opcode(parse_opcode(t, opcode)), operand1(parse_operand(std::move(o1))), operand2(parse_operand(std::move(o2)))
-
-  {
-  }
-
-
+  int line_num;
+  std::string line_text;
   OpCode opcode;
   Operand operand1;
   Operand operand2;
@@ -273,6 +282,18 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         instructions.emplace_back(mos6502::OpCode::pla);
       } else if (o1.type == Operand::Type::reg && o1.reg_num == 1 && o2.type == Operand::Type::literal) {
         instructions.emplace_back(mos6502::OpCode::sta, o2);
+      } else if (o1.type == Operand::Type::reg && o1.reg_num == 4 && o2.type == Operand::Type::literal) {
+        instructions.emplace_back(mos6502::OpCode::pha); // transfer memory through A register, pushing and popping around it
+        instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "$00"));
+        instructions.emplace_back(mos6502::OpCode::sta, o2);
+        instructions.emplace_back(mos6502::OpCode::pla); // transfer memory through A register, pushing and popping around it
+      } else {
+        throw std::runtime_error("Cannot translate instruction");
+      }
+      break;
+    case i386::OpCode::movl:
+      if (o1.type == Operand::Type::reg && o1.reg_num == 1 && o2.type == Operand::Type::reg && o2.reg_num == 4) {
+        instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, "$00"));
       } else {
         throw std::runtime_error("Cannot translate instruction");
       }
@@ -280,6 +301,20 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
     case i386::OpCode::movzbl:
       if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 1) {
         instructions.emplace_back(mos6502::OpCode::lda, o1);
+      } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 4) {
+        instructions.emplace_back(mos6502::OpCode::pha); // transfer memory through A register, pushing and popping around it
+        instructions.emplace_back(mos6502::OpCode::lda, o1);
+        instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, "$00"));
+        instructions.emplace_back(mos6502::OpCode::pla);
+      } else {
+        throw std::runtime_error("Cannot translate instruction");
+      }
+      break;
+    case i386::OpCode::shrb:
+      if (o1.type == Operand::Type::reg && o1.reg_num == 1) {
+        instructions.emplace_back(mos6502::OpCode::lsr, Operand(Operand::Type::literal, "a"));
+      } else if (o1.type == Operand::Type::reg && o1.reg_num == 4) {
+        instructions.emplace_back(mos6502::OpCode::lsr, Operand(Operand::Type::literal, "$00"));
       } else {
         throw std::runtime_error("Cannot translate instruction");
       }
@@ -301,9 +336,48 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
     case i386::OpCode::jmp:
       instructions.emplace_back(mos6502::OpCode::jmp, o1);
       break;
+    case i386::OpCode::xorl:
+      if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 1) {
+        instructions.emplace_back(mos6502::OpCode::eor, Operand(o1.type, "#" + o1.value));
+      } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 4) {
+        instructions.emplace_back(mos6502::OpCode::pha); // transfer memory through A register, pushing and popping around it
+        instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "$00"));
+        instructions.emplace_back(mos6502::OpCode::eor, Operand(o1.type, "#" + o1.value));
+        instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, "$00"));
+        instructions.emplace_back(mos6502::OpCode::pla);
+      } else {
+        throw std::runtime_error("Cannot translate instruction");
+      }
+      break;
     case i386::OpCode::addl:
       if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 1) {
         instructions.emplace_back(mos6502::OpCode::adc, Operand(o1.type, "#" + o1.value));
+      } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 4) {
+        instructions.emplace_back(mos6502::OpCode::pha); // transfer memory through A register, pushing and popping around it
+        instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "$00"));
+        instructions.emplace_back(mos6502::OpCode::adc, Operand(o1.type, "#" + o1.value));
+        instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, "$00"));
+        instructions.emplace_back(mos6502::OpCode::pla);
+      } else {
+        throw std::runtime_error("Cannot translate instruction");
+      }
+      break;
+    case i386::OpCode::cmpb:
+      if (o1.type == Operand::Type::reg && o1.reg_num == 1 && o2.type == Operand::Type::reg && o2.reg_num == 4) {
+        instructions.emplace_back(mos6502::OpCode::cmp, Operand(Operand::Type::literal, "$00"));
+      } else {
+        throw std::runtime_error("Cannot translate instruction");
+      }
+      break;
+    case i386::OpCode::andl:
+      if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 1) {
+        instructions.emplace_back(mos6502::OpCode::AND, Operand(o1.type, "#" + o1.value));
+      } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 4) {
+        instructions.emplace_back(mos6502::OpCode::pha); // transfer memory through A register, pushing and popping around it
+        instructions.emplace_back(mos6502::OpCode::lda, Operand(o1.type, "#" + o1.value));
+        instructions.emplace_back(mos6502::OpCode::AND, Operand(Operand::Type::literal, "$00"));
+        instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, "$00"));
+        instructions.emplace_back(mos6502::OpCode::pla); // transfer memory through A register, pushing and popping around it
       } else {
         throw std::runtime_error("Cannot translate instruction");
       }
@@ -322,18 +396,58 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
 
 }
 
+enum class LogLevel
+{
+  Warning,
+  Error
+};
+
+void log(LogLevel ll, const i386 &i, const std::string &message)
+{
+  const auto ll_to_s = [&ll](){
+    switch (ll)
+    {
+      case LogLevel::Warning:
+        return "warning";
+      case LogLevel::Error:
+        return "error";
+    }
+  }();
+
+  std::cerr << i.line_num << ": " << ll_to_s << ": " << message << ": `" << i.line_text << "`\n";
+}
+
+void log(LogLevel ll, const int line_no, const std::string &line, const std::string &message)
+{
+  const auto ll_to_s = [&ll](){
+    switch (ll)
+    {
+      case LogLevel::Warning:
+        return "warning";
+      case LogLevel::Error:
+        return "error";
+    }
+  }();
+
+  std::cerr << line_no << ": " << ll_to_s << ": " << message << ": `" << line << "`\n";
+}
+
 void to_mos6502(const i386 &i, std::vector<mos6502> &instructions)
 {
-  switch(i.type)
-  {
-    case ASMLine::Type::Label:
-      instructions.emplace_back(i.type, i.text);
-      return;
-    case ASMLine::Type::Directive:
-      throw std::runtime_error("Directives not understood during translation");
-    case ASMLine::Type::Instruction:
-      translate_instruction(instructions, i.opcode, i.operand1, i.operand2);
-      return;
+  try {
+    switch(i.type)
+    {
+      case ASMLine::Type::Label:
+        instructions.emplace_back(i.type, i.text);
+        return;
+      case ASMLine::Type::Directive:
+        throw std::runtime_error("Directives not understood during translation");
+      case ASMLine::Type::Instruction:
+        translate_instruction(instructions, i.opcode, i.operand1, i.operand2);
+        return;
+    }
+  } catch (const std::exception &e) {
+    log(LogLevel::Error, i, e.what());
   }
 }
 
@@ -390,22 +504,26 @@ int main()
     std::string line;
     getline(std::cin, line);
 
-    std::smatch match;
-    if (std::regex_match(line, match, Label))
-    {
-      instructions.emplace_back(ASMLine::Type::Label, match[1]);
-    } else if (std::regex_match(line, match, Directive)) {
-      instructions.emplace_back(ASMLine::Type::Directive, match[1]);
-    } else if (std::regex_match(line, match, UnaryInstruction)) {
-      instructions.emplace_back(ASMLine::Type::Instruction, match[1], match[2]);
-    } else if (std::regex_match(line, match, BinaryInstruction)) {
-      instructions.emplace_back(ASMLine::Type::Instruction, match[1], match[2], match[3]);
-    } else if (std::regex_match(line, match, Instruction)) {
-      instructions.emplace_back(ASMLine::Type::Instruction, match[1]);
-    } else if (line == "") {
-      //std::cout << "EmptyLine\n";
-    } else {
-      throw std::runtime_error("Unparsed Input, Line: " + std::to_string(lineno));
+    try {
+      std::smatch match;
+      if (std::regex_match(line, match, Label))
+      {
+        instructions.emplace_back(lineno, line, ASMLine::Type::Label, match[1]);
+      } else if (std::regex_match(line, match, Directive)) {
+        instructions.emplace_back(lineno, line, ASMLine::Type::Directive, match[1]);
+      } else if (std::regex_match(line, match, UnaryInstruction)) {
+        instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1], match[2]);
+      } else if (std::regex_match(line, match, BinaryInstruction)) {
+        instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1], match[2], match[3]);
+      } else if (std::regex_match(line, match, Instruction)) {
+        instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1]);
+      } else if (line == "") {
+        //std::cout << "EmptyLine\n";
+      } else {
+        throw std::runtime_error("Unparsed Input, Line: " + std::to_string(lineno));
+      }
+    } catch (const std::exception &e) {
+      log(LogLevel::Error, lineno, line, e.what());
     }
 
     ++lineno;
