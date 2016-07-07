@@ -31,13 +31,13 @@ struct Operand
     reg /*ister*/
   };
 
-  int reg_num = 0;
   Type type = Type::empty;
+  int reg_num = 0;
   std::string value;
 
   Operand() = default;
 
-  Operand(const Type t, const std::string v)
+  Operand(const Type t, std::string v)
     : type(t), value(std::move(v))
   {
     assert(type == Type::literal);
@@ -86,8 +86,10 @@ struct mos6502 : ASMLine
       case OpCode::jmp:
       case OpCode::adc:
       case OpCode::sbc:
-        return false;
+      case OpCode::unknown:
+        break;
     }
+    return false;
   }
 
   static bool get_is_comparison(const OpCode o) {
@@ -106,22 +108,24 @@ struct mos6502 : ASMLine
       case OpCode::beq:
       case OpCode::adc:
       case OpCode::sbc:
-        return false;
+      case OpCode::unknown:
+        break;
     }
+    return false;
   }
 
 
-  mos6502(const OpCode o)
+  explicit mos6502(const OpCode o)
     : ASMLine(Type::Instruction, to_string(o)), opcode(o), is_branch(get_is_branch(o)), is_comparison(get_is_comparison(o))
   {
   }
 
-  mos6502(const Type t, const std::string s)
+  mos6502(const Type t, std::string s)
     : ASMLine(t, std::move(s))
   {
   }
 
-  mos6502(const OpCode o, const Operand t_o)
+  mos6502(const OpCode o, Operand t_o)
     : ASMLine(Type::Instruction, to_string(o)), opcode(o), op(std::move(t_o)), is_branch(get_is_branch(o)), is_comparison(get_is_comparison(o))
   {
   }
@@ -158,6 +162,8 @@ struct mos6502 : ASMLine
       case OpCode::unknown:
         return "";
     };
+
+    return "";
   }
 
   std::string to_string() const
@@ -169,6 +175,7 @@ struct mos6502 : ASMLine
       case ASMLine::Type::Instruction:
         return '\t' + text + ' ' + op.value;
     };
+    throw std::runtime_error("Unable to render: " + text);
   }
 
 
@@ -227,9 +234,9 @@ struct i386 : ASMLine
           if (o == "je") return OpCode::je;
           if (o == "subl") return OpCode::subl;
           if (o == "addl") return OpCode::addl;
-          throw std::runtime_error("Unknown opcode: " + o);
         }
     }
+    throw std::runtime_error("Unknown opcode: " + o);
   }
 
   static Operand parse_operand(std::string o)
@@ -257,7 +264,7 @@ struct i386 : ASMLine
     }
   }
 
-  i386(const int t_line_num, const std::string t_line_text, Type t, std::string opcode, std::string o1="", std::string o2="")
+  i386(const int t_line_num, std::string t_line_text, Type t, std::string opcode, std::string o1="", std::string o2="")
     : ASMLine(t, opcode), line_num(t_line_num), line_text(std::move(t_line_text)), 
       opcode(parse_opcode(t, opcode)), operand1(parse_operand(std::move(o1))), operand2(parse_operand(std::move(o2)))
   {
@@ -275,7 +282,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
   switch(op)
   {
     case i386::OpCode::movb:
-      if (o1.type == Operand::Type::literal && o1.type == Operand::Type::literal) {
+      if (o1.type == Operand::Type::literal && o2.type == Operand::Type::literal) {
         instructions.emplace_back(mos6502::OpCode::pha); // transfer memory through A register, pushing and popping around it
         instructions.emplace_back(mos6502::OpCode::lda, Operand(o1.type, "#" + o1.value));
         instructions.emplace_back(mos6502::OpCode::sta, o2);
@@ -402,34 +409,26 @@ enum class LogLevel
   Error
 };
 
+std::string to_string(const LogLevel ll)
+{
+  switch (ll)
+  {
+    case LogLevel::Warning:
+      return "warning";
+    case LogLevel::Error:
+      return "error";
+  }
+  return "unknown";
+}
+
 void log(LogLevel ll, const i386 &i, const std::string &message)
 {
-  const auto ll_to_s = [&ll](){
-    switch (ll)
-    {
-      case LogLevel::Warning:
-        return "warning";
-      case LogLevel::Error:
-        return "error";
-    }
-  }();
-
-  std::cerr << i.line_num << ": " << ll_to_s << ": " << message << ": `" << i.line_text << "`\n";
+  std::cerr << i.line_num << ": " << to_string(ll) << ": " << message << ": `" << i.line_text << "`\n";
 }
 
 void log(LogLevel ll, const int line_no, const std::string &line, const std::string &message)
 {
-  const auto ll_to_s = [&ll](){
-    switch (ll)
-    {
-      case LogLevel::Warning:
-        return "warning";
-      case LogLevel::Error:
-        return "error";
-    }
-  }();
-
-  std::cerr << line_no << ": " << ll_to_s << ": " << message << ": `" << line << "`\n";
+  std::cerr << line_no << ": " << to_string(ll) << ": " << message << ": `" << line << "`\n";
 }
 
 void to_mos6502(const i386 &i, std::vector<mos6502> &instructions)
