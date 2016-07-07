@@ -279,9 +279,9 @@ struct i386 : ASMLine
     }
   }
 
-  i386(const int t_line_num, std::string t_line_text, Type t, std::string opcode, std::string o1="", std::string o2="")
-    : ASMLine(t, opcode), line_num(t_line_num), line_text(std::move(t_line_text)), 
-      opcode(parse_opcode(t, opcode)), operand1(parse_operand(std::move(o1))), operand2(parse_operand(std::move(o2)))
+  i386(const int t_line_num, std::string t_line_text, Type t, std::string t_opcode, std::string o1="", std::string o2="")
+    : ASMLine(t, t_opcode), line_num(t_line_num), line_text(std::move(t_line_text)), 
+      opcode(parse_opcode(t, t_opcode)), operand1(parse_operand(std::move(o1))), operand2(parse_operand(std::move(o2)))
   {
   }
 

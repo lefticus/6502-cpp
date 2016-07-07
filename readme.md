@@ -44,6 +44,13 @@ main:
 
 Well, lots of things.
 
+## Better code organization
+
+I really had no idea what I was doing when I started this. So, like all code, it's going to need some improvements along the way to make it more organized and more maintainable.
+
+## Improvements
+
+ * Keep track of input source lines and add comments in output to show where lines came from, for learning / debugging purposes
  * Better / more efficient translation
  * Support for 16bit math? Maybe? We need to at least be able to do 16bit pointer math
  * Consider supporting the "Sweet 16" virtual 16bit CPU that Woz designed?
