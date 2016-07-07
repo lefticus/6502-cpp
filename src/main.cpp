@@ -56,8 +56,10 @@ struct mos6502 : ASMLine
   {
     unknown,
     lda,
+    ldy,
     eor,
     sta,
+    sty,
     pha,
     pla,
     lsr,
@@ -76,8 +78,10 @@ struct mos6502 : ASMLine
       case OpCode::bne:
         return true;
       case OpCode::lda:
+      case OpCode::ldy:
       case OpCode::eor:
       case OpCode::sta:
+      case OpCode::sty:
       case OpCode::pha:
       case OpCode::pla:
       case OpCode::lsr:
@@ -97,8 +101,10 @@ struct mos6502 : ASMLine
       case OpCode::cmp:
         return true;
       case OpCode::lda:
+      case OpCode::ldy:
       case OpCode::eor:
       case OpCode::sta:
+      case OpCode::sty:
       case OpCode::pha:
       case OpCode::pla:
       case OpCode::lsr:
@@ -135,10 +141,14 @@ struct mos6502 : ASMLine
     switch (o) {
       case OpCode::lda:
         return "lda";
+      case OpCode::ldy:
+        return "ldy";
       case OpCode::eor:
         return "eor";
       case OpCode::sta:
         return "sta";
+      case OpCode::sty:
+        return "sty";
       case OpCode::pha:
         return "pha";
       case OpCode::pla:
@@ -283,17 +293,13 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
   {
     case i386::OpCode::movb:
       if (o1.type == Operand::Type::literal && o2.type == Operand::Type::literal) {
-        instructions.emplace_back(mos6502::OpCode::pha); // transfer memory through A register, pushing and popping around it
-        instructions.emplace_back(mos6502::OpCode::lda, Operand(o1.type, "#" + o1.value));
-        instructions.emplace_back(mos6502::OpCode::sta, o2);
-        instructions.emplace_back(mos6502::OpCode::pla);
+        instructions.emplace_back(mos6502::OpCode::ldy, Operand(o1.type, "#" + o1.value));
+        instructions.emplace_back(mos6502::OpCode::sty, o2);
       } else if (o1.type == Operand::Type::reg && o1.reg_num == 1 && o2.type == Operand::Type::literal) {
         instructions.emplace_back(mos6502::OpCode::sta, o2);
       } else if (o1.type == Operand::Type::reg && o1.reg_num == 4 && o2.type == Operand::Type::literal) {
-        instructions.emplace_back(mos6502::OpCode::pha); // transfer memory through A register, pushing and popping around it
-        instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "$00"));
-        instructions.emplace_back(mos6502::OpCode::sta, o2);
-        instructions.emplace_back(mos6502::OpCode::pla); // transfer memory through A register, pushing and popping around it
+        instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, "$00"));
+        instructions.emplace_back(mos6502::OpCode::sty, o2);
       } else {
         throw std::runtime_error("Cannot translate instruction");
       }
@@ -309,10 +315,8 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
       if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 1) {
         instructions.emplace_back(mos6502::OpCode::lda, o1);
       } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 4) {
-        instructions.emplace_back(mos6502::OpCode::pha); // transfer memory through A register, pushing and popping around it
-        instructions.emplace_back(mos6502::OpCode::lda, o1);
-        instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, "$00"));
-        instructions.emplace_back(mos6502::OpCode::pla);
+        instructions.emplace_back(mos6502::OpCode::ldy, o1);
+        instructions.emplace_back(mos6502::OpCode::sty, Operand(Operand::Type::literal, "$00"));
       } else {
         throw std::runtime_error("Cannot translate instruction");
       }
