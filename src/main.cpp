@@ -69,7 +69,8 @@ struct mos6502 : ASMLine
     beq,
     jmp,
     adc,
-    sbc
+    sbc,
+    rts
   };
 
   static bool get_is_branch(const OpCode o) {
@@ -90,6 +91,7 @@ struct mos6502 : ASMLine
       case OpCode::jmp:
       case OpCode::adc:
       case OpCode::sbc:
+      case OpCode::rts:
       case OpCode::unknown:
         break;
     }
@@ -114,6 +116,7 @@ struct mos6502 : ASMLine
       case OpCode::beq:
       case OpCode::adc:
       case OpCode::sbc:
+      case OpCode::rts:
       case OpCode::unknown:
         break;
     }
@@ -169,6 +172,8 @@ struct mos6502 : ASMLine
         return "adc";
       case OpCode::sbc:
         return "sbc";
+      case OpCode::rts:
+        return "rts";
       case OpCode::unknown:
         return "";
     };
@@ -291,6 +296,9 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
 {
   switch(op)
   {
+    case i386::OpCode::ret:
+      instructions.emplace_back(mos6502::OpCode::rts);
+      break;
     case i386::OpCode::movb:
       if (o1.type == Operand::Type::literal && o2.type == Operand::Type::literal) {
         instructions.emplace_back(mos6502::OpCode::ldy, Operand(o1.type, "#" + o1.value));
@@ -350,6 +358,9 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
     case i386::OpCode::xorl:
       if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 1) {
         instructions.emplace_back(mos6502::OpCode::eor, Operand(o1.type, "#" + o1.value));
+      } else if (o1.type == Operand::Type::reg && o2.reg_num == 1 && o2.type == Operand::Type::reg && o2.reg_num == 1) {
+        // cheater shortcut on x86 to 0 out a register
+        instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "$00"));
       } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg && o2.reg_num == 4) {
         instructions.emplace_back(mos6502::OpCode::pha); // transfer memory through A register, pushing and popping around it
         instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "$00"));
@@ -453,6 +464,26 @@ void to_mos6502(const i386 &i, std::vector<mos6502> &instructions)
     log(LogLevel::Error, i, e.what());
   }
 }
+
+bool optimize(std::vector<mos6502> &instructions)
+{
+  if (instructions.size() < 2) {
+    return false;
+  }
+
+  for (size_t op = 0; op < instructions.size() - 1; ++op)
+  {
+    if (instructions[op].opcode == mos6502::OpCode::pla
+        && instructions[op+1].opcode == mos6502::OpCode::pha)
+    {
+      instructions.erase(std::next(std::begin(instructions), op), std::next(std::begin(instructions), op+2));
+      return true;
+    }
+  }
+
+  return false;
+}
+
 
 bool fix_overwritten_flags(std::vector<mos6502> &instructions)
 {
@@ -625,6 +656,11 @@ int main()
   }
 
   while (fix_overwritten_flags(new_instructions))
+  {
+    // do it however many times it takes
+  }
+
+  while (optimize(new_instructions))
   {
     // do it however many times it takes
   }
