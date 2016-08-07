@@ -276,7 +276,7 @@ struct mos6502 : ASMLine
   {
     switch (type) {
       case ASMLine::Type::Label:
-        return text + ':';
+        return text; // + ':';
       case ASMLine::Type::Directive:
       case ASMLine::Type::Instruction:
         return '\t' + text + ' ' + op.value;
@@ -748,6 +748,37 @@ bool optimize(std::vector<mos6502> &instructions)
   return false;
 }
 
+bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_count)
+{
+  std::map<std::string, size_t> labels;
+  for (size_t op = 0; op < instructions.size(); ++op)
+  {
+    if (instructions[op].type == ASMLine::Type::Label) {
+      labels[instructions[op].text] = op;
+    }
+  }
+
+  for (size_t op = 0; op < instructions.size(); ++op)
+  {
+    if (instructions[op].is_branch && std::abs(static_cast<int>(labels[instructions[op].op.value]) - static_cast<int>(op)) * 3 > 255)
+    {
+      ++branch_patch_count;
+      const auto going_to = instructions[op].op.value;
+      const auto new_pos = "branch_patch_" + std::to_string(branch_patch_count);
+      // uh-oh too long of a branch, have to convert this to a jump...
+      if (instructions[op].opcode == mos6502::OpCode::bne) {
+        instructions[op] = mos6502(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_pos));
+        instructions.insert(std::next(std::begin(instructions), op + 1), mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
+        instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
+        return true;
+      } else {
+        throw std::runtime_error("Don't know how to reorg this branch");
+      }
+    }
+  }
+  return false;
+}
+
 
 bool fix_overwritten_flags(std::vector<mos6502> &instructions)
 {
@@ -940,6 +971,12 @@ int main()
   }
 
   while (optimize(new_instructions))
+  {
+    // do it however many times it takes
+  }
+
+  int branch_patch_count = 0;
+  while (fix_long_branches(new_instructions, branch_patch_count))
   {
     // do it however many times it takes
   }
