@@ -121,7 +121,9 @@ struct mos6502 : ASMLine
     adc,
     sbc,
     rts,
-    clc
+    clc,
+    sec,
+    bit
   };
 
   static bool get_is_branch(const OpCode o) {
@@ -153,6 +155,8 @@ struct mos6502 : ASMLine
       case OpCode::sbc:
       case OpCode::rts:
       case OpCode::clc:
+      case OpCode::sec:
+      case OpCode::bit:
       case OpCode::unknown:
         break;
     }
@@ -163,6 +167,7 @@ struct mos6502 : ASMLine
     switch (o) {
       case OpCode::cmp:
       case OpCode::cpy:
+      case OpCode::bit:
         return true;
       case OpCode::lda:
       case OpCode::ldy:
@@ -188,6 +193,7 @@ struct mos6502 : ASMLine
       case OpCode::sbc:
       case OpCode::rts:
       case OpCode::clc:
+      case OpCode::sec:
       case OpCode::unknown:
         break;
     }
@@ -265,6 +271,10 @@ struct mos6502 : ASMLine
         return "rts";
       case OpCode::clc:
         return "clc";
+      case OpCode::sec:
+        return "sec";
+      case OpCode::bit:
+        return "bit";
       case OpCode::unknown:
         return "";
     };
@@ -279,7 +289,7 @@ struct mos6502 : ASMLine
         return text; // + ':';
       case ASMLine::Type::Directive:
       case ASMLine::Type::Instruction:
-        return '\t' + text + ' ' + op.value;
+        return '\t' + text + ' ' + op.value + "; " + comment;
     };
     throw std::runtime_error("Unable to render: " + text);
   }
@@ -287,6 +297,7 @@ struct mos6502 : ASMLine
 
   OpCode opcode = OpCode::unknown;
   Operand op;
+  std::string comment;
   bool is_branch = false;
   bool is_comparison = false;
 };
@@ -523,14 +534,15 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
       if (o1.type == Operand::Type::reg && o2.type == Operand::Type::reg && o1.reg_num == o2.reg_num) {
         // this just tests the register for 0
         instructions.emplace_back(mos6502::OpCode::lda, get_register(o1.reg_num));
+//        instructions.emplace_back(mos6502::OpCode::bit, Operand(Operand::Type::literal, "#$00"));
       } else if (o1.type == Operand::Type::reg && o2.type == Operand::Type::reg) {
         // ands the values
         instructions.emplace_back(mos6502::OpCode::lda, get_register(o1.reg_num));
-        instructions.emplace_back(mos6502::OpCode::AND, get_register(o2.reg_num));
+        instructions.emplace_back(mos6502::OpCode::bit, get_register(o2.reg_num));
       } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg) {
         // ands the values
         instructions.emplace_back(mos6502::OpCode::lda, Operand(o1.type, fixup_8bit_literal(o1.value)));
-        instructions.emplace_back(mos6502::OpCode::AND, get_register(o2.reg_num));
+        instructions.emplace_back(mos6502::OpCode::bit, get_register(o2.reg_num));
       } else {
         throw std::runtime_error("Cannot translate testb instruction");
       }
@@ -578,11 +590,11 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
       break;
     case i386::OpCode::cmpb:
       if (o1.type == Operand::Type::literal && o2.type == Operand::Type::literal) {
-        instructions.emplace_back(mos6502::OpCode::ldy, o2);
-        instructions.emplace_back(mos6502::OpCode::cpy, Operand(o1.type, fixup_8bit_literal(o1.value)));
+        instructions.emplace_back(mos6502::OpCode::lda, o2);
+        instructions.emplace_back(mos6502::OpCode::cmp, Operand(o1.type, fixup_8bit_literal(o1.value)));
       } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg) {
-        instructions.emplace_back(mos6502::OpCode::ldy, get_register(o2.reg_num));
-        instructions.emplace_back(mos6502::OpCode::cpy, Operand(o1.type, fixup_8bit_literal(o1.value)));
+        instructions.emplace_back(mos6502::OpCode::lda, get_register(o2.reg_num));
+        instructions.emplace_back(mos6502::OpCode::cmp, Operand(o1.type, fixup_8bit_literal(o1.value)));
       } else {
         throw std::runtime_error("Cannot translate cmb instruction");
       }
@@ -624,9 +636,17 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
       }
       break;
     case i386::OpCode::subb:
-      // instructions.emplace_back(mos6502::OpCode::sbc, Operand(o1.type, fixup_8bit_literal(o1.value)));
+      // DEST <- DEST - SRC
+      // o2 = o2 - o1
       // Ensure that we set the carry flag before performing the subtraction
-      throw std::runtime_error("Cannot translate subb instruction");
+      if (o1.type == Operand::Type::reg && o2.type == Operand::Type::literal) {
+        instructions.emplace_back(mos6502::OpCode::lda, o2);
+        instructions.emplace_back(mos6502::OpCode::sec);
+        instructions.emplace_back(mos6502::OpCode::sbc, get_register(o1.reg_num));
+        instructions.emplace_back(mos6502::OpCode::sta, o2);
+      } else {
+        throw std::runtime_error("Cannot translate subb instruction");
+      }
       break;
     case i386::OpCode::sbbb:
       // DEST <- (DEST – (SRC + CF))
@@ -693,7 +713,10 @@ void to_mos6502(const i386 &i, std::vector<mos6502> &instructions)
         return;
       case ASMLine::Type::Instruction:
 //        instructions.emplace_back(ASMLine::Type::Directive, "; " + i.line_text);
+
+        const auto head = instructions.size();
         translate_instruction(instructions, i.opcode, i.operand1, i.operand2);
+        for_each(std::next(instructions.begin(), head), instructions.end(), [ text = i.line_text ](auto &ins){ ins.comment = text; });
         return;
     }
   } catch (const std::exception &e) {
@@ -786,29 +809,34 @@ bool fix_overwritten_flags(std::vector<mos6502> &instructions)
     return false;
   }
 
-  for (size_t op = 0; op < instructions.size() - 2; ++op)
+  for (size_t op = 0; op < instructions.size(); ++op)
   {
-    if (instructions[op].is_comparison
-        && !instructions[op + 1].is_comparison
-        && !instructions[op + 1].is_branch
-        && instructions[op + 2].is_branch) {
-      const auto opcode_to_duplicate = op + 1;
-      const auto new_pos_1 = op + 3;
-      const auto new_pos_2 = [&instructions, branch = instructions[op + 2].op.value](){
-        for (size_t cur_op = 0; cur_op < instructions.size(); ++cur_op) {
-          if (instructions[cur_op].type == ASMLine::Type::Label
-              && instructions[cur_op].text == branch) {
-            return cur_op + 1;
-          }
+    if (instructions[op].is_comparison) {
+      auto op2 = op + 1;
+      while (op2 < instructions.size() 
+             && !instructions[op2].is_comparison
+             && !instructions[op2].is_branch)
+      {
+        ++op2;
+      }
+
+      if (op2 < instructions.size() 
+          && (op2 - op) > 1
+          && instructions[op2-1].opcode != mos6502::OpCode::plp) {
+        if (instructions[op2].is_comparison) {
+          continue;
         }
-        throw std::runtime_error("Unable to find matching branch!");
-      }();
 
-      instructions.insert(std::next(std::begin(instructions), std::max(new_pos_1, new_pos_2)), instructions[opcode_to_duplicate]);
-      instructions.insert(std::next(std::begin(instructions), std::min(new_pos_1, new_pos_2)), instructions[opcode_to_duplicate]);
-      instructions.erase(std::next(std::begin(instructions), opcode_to_duplicate));
+        if (instructions[op2].is_branch) {
+          // insert a pull of processor status before the branch
+          instructions.insert(std::next(std::begin(instructions), op2), mos6502(mos6502::OpCode::plp));
+          // insert a push of processor status after the comparison
+          instructions.insert(std::next(std::begin(instructions), op+1), mos6502(mos6502::OpCode::php));
 
-      return true;
+          return true;
+        }
+
+      }
     }
   }
 
