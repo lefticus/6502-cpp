@@ -209,7 +209,7 @@ int main()
               0,0,2,2,1,1,1,1,2,2,0,0,
               0,0,2,2,2,1,1,2,2,2,0,0,
               0,0,0,2,2,2,2,2,2,0,0,0,
-              0,0,0,2,2,2,2,2,2,0,0,0,
+              0,0,0,0,2,2,2,2,0,0,0,0,
               0,0,0,0,0,0,0,0,0,0,0,0,
               0,0,0,0,0,0,0,0,0,0,0,0,
               0,0,0,0,0,0,0,0,0,0,0,0,
@@ -220,9 +220,9 @@ int main()
 
   make_sprite(1,
               0,0,0,0,1,1,1,1,0,0,0,0,
-              0,0,0,0,1,0,0,1,0,0,0,0,
-              0,0,0,0,1,0,0,1,0,0,0,0,
-              0,0,0,0,1,0,0,1,0,0,0,0,
+              0,0,0,0,1,1,1,1,0,0,0,0,
+              0,0,0,0,1,1,1,1,0,0,0,0,
+              0,0,0,0,1,1,1,1,0,0,0,0,
               0,0,0,0,2,2,2,2,0,0,0,0,
               0,0,0,0,2,2,2,2,0,0,0,0,
               0,0,0,0,2,1,1,2,0,0,0,0,
@@ -236,23 +236,14 @@ int main()
               0,0,0,0,2,1,1,2,0,0,0,0,
               0,0,0,0,2,2,2,2,0,0,0,0,
               0,0,0,0,2,2,2,2,0,0,0,0,
-              0,0,0,0,1,0,0,1,0,0,0,0,
-              0,0,0,0,1,0,0,1,0,0,0,0,
-              0,0,0,0,1,0,0,1,0,0,0,0,
+              0,0,0,0,1,1,1,1,0,0,0,0,
+              0,0,0,0,1,1,1,1,0,0,0,0,
+              0,0,0,0,1,1,1,1,0,0,0,0,
               0,0,0,0,1,1,1,1,0,0,0,0
              );
   
   enable_sprite(1, 1, true, false, true);
   enable_sprite(2, 1, true, false, true);
-
-
-  // sprite doubling with set_bit seems to be not working?
-  // this is a hack TODO fix
-//  memory(SPRITE_EXPAND_VERTICAL) = 0xFF;
-
-  // start timer  
-  memory(56590) = 1;
-
 
   const auto joy = [](const uint8_t d){
     struct State{
@@ -313,8 +304,8 @@ int main()
 
   
   std::pair<int8_t, int8_t> ball_vec{1,1};
-  uint8_t player1 = 0;
-  uint8_t player2 = 0;
+  uint8_t player1 = '0';
+  uint8_t player2 = '0';
 
   const auto reset_ball = [&]{
     sprite_x(0) = 255/2;
@@ -329,39 +320,46 @@ int main()
   sprite_x(2) = 255;
   sprite_y(2) = 150;
 
+  uint8_t num_volleys = 0;
+
   while (true) {
 
-    if (memory(56325) == 0) {
-      // Move ball
-      const auto ball_x = sprite_x(0) += std::get<0>(ball_vec);
-      const auto ball_y = sprite_y(0) += std::get<1>(ball_vec);
+    if (memory(53266) == 245
+        && !test_bit(memory(53265),7)) {
 
       if (const auto collisions = sprite_collisions();
-          collisions.sprite0 && (collisions.sprite1 || collisions.sprite2)) {
-        // ball hit a paddle
-        std::get<0>(ball_vec) *= -1;
+          collisions.sprite0 && (collisions.sprite1 || collisions.sprite2))
+      {
+        std::get<0>(ball_vec) *= -1; //invert ball x velocity
+        // "bounce" vall out of collision area
         sprite_x(0) += std::get<0>(ball_vec);
+        ++num_volleys;
       }
+
+//      if (num_volleys == 10) {
+//        std::get<0>(ball_vec) += 1;
+//      }
+
+      const auto ball_x = sprite_x(0) += std::get<0>(ball_vec);
+      const auto ball_y = sprite_y(0) += std::get<1>(ball_vec);
 
       // Update paddle positions
       if (const auto joy = joy_port1(); joy.up)
       {
-        ++sprite_y(1);
+        sprite_y(1) += 3;
       } else if (joy.down) {
-        --sprite_y(1);
+        sprite_y(1) -= 3;
       }
 
       if (const auto joy = joy_port2(); joy.up)
       {
-        ++sprite_y(2);
+        sprite_y(2) += 3;
       } else if (joy.down) {
-        --sprite_y(2);
+        sprite_y(2) -= 3;
       }
 
-
-
       // ball hit the top or bottom wall
-      if (ball_y == 30 || ball_y == 240) {
+      if (ball_y == 45 || ball_y == 235) {
         std::get<1>(ball_vec) *= -1;
       }
 
@@ -369,14 +367,14 @@ int main()
         // ball hit left wall, player 2 scored
         ++player2;
         reset_ball();
-      } else if (ball_x == 254) {
+      } else if (ball_x == 255) {
         // ball hit right wall, player 1 scored
         ++player1;
         reset_ball();
       }
 
-      display_int(10, 3, player1);
-      display_int(30, 3, player2);
+      display_int(10, 12, player1);
+      display_int(30, 12, player2);
     }
   }
 }

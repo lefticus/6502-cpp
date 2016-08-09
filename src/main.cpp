@@ -82,11 +82,14 @@ Operand get_register(const int reg_num, const int offset = 0) {
     case 0x07: return Operand(Operand::Type::literal, "$fe"); // unused
     case 0x08: return Operand(Operand::Type::literal, "$22"); // unused
     case 0x09: return Operand(Operand::Type::literal, "$23"); // unused
+    case 0x0A: return Operand(Operand::Type::literal, "$39"); // Current BASIC line number
+    case 0x0B: return Operand(Operand::Type::literal, "$3a"); // Current BASIC line number
     case 0x10: return get_register(0x00 + offset);
     case 0x11: return get_register(0x02 + offset);
     case 0x12: return get_register(0x04 + offset);
     case 0x13: return get_register(0x06 + offset);
     case 0x14: return get_register(0x08 + offset);
+    case 0x15: return get_register(0x0A + offset);
   };
   throw std::runtime_error("Unhandled register number: " + std::to_string(reg_num));
 }
@@ -415,6 +418,8 @@ struct i386 : ASMLine
         return Operand(Operand::Type::reg, 0x07);
       } else if (o == "%sil") {
         return Operand(Operand::Type::reg, 0x08);
+      } else if (o == "%dil") {
+        return Operand(Operand::Type::reg, 0x0A);
       } else if (o == "%ax" || o == "%eax") {
         return Operand(Operand::Type::reg, 0x10);
       } else if (o == "%bx" || o == "%ebx") {
@@ -425,6 +430,8 @@ struct i386 : ASMLine
         return Operand(Operand::Type::reg, 0x13);
       } else if (o == "%si" || o == "%esi") {
         return Operand(Operand::Type::reg, 0x14);
+      } else if (o == "%di" || o == "%edi") {
+        return Operand(Operand::Type::reg, 0x15);
       } else {
         throw std::runtime_error("Unknown register operand: '" + o + "'");
       }
@@ -579,6 +586,11 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         instructions.emplace_back(mos6502::OpCode::clc);
         instructions.emplace_back(mos6502::OpCode::adc, Operand(o1.type, fixup_8bit_literal(o1.value)));
         instructions.emplace_back(mos6502::OpCode::sta, get_register(o2.reg_num));
+      } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::literal) {
+        instructions.emplace_back(mos6502::OpCode::lda, Operand(o1.type, fixup_8bit_literal(o1.value)));
+        instructions.emplace_back(mos6502::OpCode::clc);
+        instructions.emplace_back(mos6502::OpCode::adc, o2);
+        instructions.emplace_back(mos6502::OpCode::sta, o2);
       } else if (o1.type == Operand::Type::reg && o2.type == Operand::Type::literal) {
         instructions.emplace_back(mos6502::OpCode::lda, get_register(o1.reg_num));
         instructions.emplace_back(mos6502::OpCode::clc);
@@ -648,6 +660,17 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         throw std::runtime_error("Cannot translate subb instruction");
       }
       break;
+    case i386::OpCode::pushl:
+      if (o1.type == Operand::Type::reg) {
+        instructions.emplace_back(mos6502::OpCode::lda, get_register(o1.reg_num));
+        instructions.emplace_back(mos6502::OpCode::pha);
+        instructions.emplace_back(mos6502::OpCode::lda, get_register(o1.reg_num, 1));
+        instructions.emplace_back(mos6502::OpCode::pha);
+      } else {
+        throw std::runtime_error("Cannot translate sbb instruction");
+      }
+      break;
+
     case i386::OpCode::sbbb:
       // DEST <- (DEST – (SRC + CF))
       // o2 <- (o2 - (o1 + cf))
