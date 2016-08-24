@@ -292,7 +292,10 @@ struct mos6502 : ASMLine
         return text; // + ':';
       case ASMLine::Type::Directive:
       case ASMLine::Type::Instruction:
-        return '\t' + text + ' ' + op.value + "; " + comment;
+        {
+          const std::string line = '\t' + text + ' ' + op.value;
+          return line + std::string(static_cast<size_t>(std::max(15 - static_cast<int>(line.size()), 1)), ' ') + "; " + comment;
+        }
     };
     throw std::runtime_error("Unable to render: " + text);
   }
@@ -504,6 +507,10 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         instructions.emplace_back(mos6502::OpCode::sta, o2);
       } else if (o1.type == Operand::Type::reg && o2.type == Operand::Type::reg) {
         instructions.emplace_back(mos6502::OpCode::lda, get_register(o1.reg_num));
+        instructions.emplace_back(mos6502::OpCode::ORA, get_register(o2.reg_num));
+        instructions.emplace_back(mos6502::OpCode::sta, get_register(o2.reg_num));
+      } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg) {
+        instructions.emplace_back(mos6502::OpCode::lda, Operand(o1.type, fixup_8bit_literal(o1.value)));
         instructions.emplace_back(mos6502::OpCode::ORA, get_register(o2.reg_num));
         instructions.emplace_back(mos6502::OpCode::sta, get_register(o2.reg_num));
       } else {
@@ -732,14 +739,24 @@ void to_mos6502(const i386 &i, std::vector<mos6502> &instructions)
         instructions.emplace_back(i.type, i.text);
         return;
       case ASMLine::Type::Directive:
-//        instructions.emplace_back(i.type, i.text);
+        instructions.emplace_back(i.type, i.text);
         return;
       case ASMLine::Type::Instruction:
 //        instructions.emplace_back(ASMLine::Type::Directive, "; " + i.line_text);
 
         const auto head = instructions.size();
         translate_instruction(instructions, i.opcode, i.operand1, i.operand2);
-        for_each(std::next(instructions.begin(), head), instructions.end(), [ text = i.line_text ](auto &ins){ ins.comment = text; });
+
+        auto text = i.line_text;
+        if (text[0] == '\t') {
+          text.erase(0, 1);
+        }
+        for_each(std::next(instructions.begin(), head), instructions.end(), 
+            [ text ](auto &ins){ 
+              
+              ins.comment = text; 
+            }
+          );
         return;
     }
   } catch (const std::exception &e) {
@@ -753,20 +770,38 @@ bool optimize(std::vector<mos6502> &instructions)
     return false;
   }
 
+  const auto next_instruction = [&instructions](auto i) {
+    do {
+      ++i;
+    } while (i < instructions.size() && instructions[i].type == ASMLine::Type::Directive);
+    return i;
+  };
+
   for (size_t op = 0; op < instructions.size() - 1; ++op)
   {
-    if (instructions[op].opcode == mos6502::OpCode::tya
-        && instructions[op+1].opcode == mos6502::OpCode::tay)
+    // look for a transfer of Y -> A immediately followed by A -> Y
+    if (instructions[op].opcode == mos6502::OpCode::tya)
     {
-      instructions.erase(std::next(std::begin(instructions), op + 1), std::next(std::begin(instructions), op+2));
-      return true;
+      next_instruction(op);
+      if (instructions[op].opcode == mos6502::OpCode::tay) {
+        instructions.erase(std::next(std::begin(instructions), op), std::next(std::begin(instructions), op+1));
+        return true;
+      }
     }
-    if (instructions[op].opcode == mos6502::OpCode::sta
-        && instructions[op+1].opcode == mos6502::OpCode::lda
-        && instructions[op].op == instructions[op+1].op)
+  }
+
+  for (size_t op = 0; op < instructions.size() - 1; ++op)
+  {
+    // look for a store A -> loc immediately followed by loc -> A
+    if (instructions[op].opcode == mos6502::OpCode::sta)
     {
-      instructions.erase(std::next(std::begin(instructions), op + 1), std::next(std::begin(instructions), op+2));
-      return true;
+      const auto next = next_instruction(op);
+      if (instructions[next].opcode == mos6502::OpCode::lda
+          && instructions[next].op == instructions[op].op)
+      {
+        instructions.erase(std::next(std::begin(instructions), next), std::next(std::begin(instructions), next+1));
+        return true;
+      }
     }
   }
 
@@ -777,7 +812,9 @@ bool optimize(std::vector<mos6502> &instructions)
     {
       const auto operand = instructions[op].op;
       auto op2 = op+1;
-      while (op2 < instructions.size() && instructions[op2].opcode == mos6502::OpCode::sta) {
+      // look for multiple stores of the same value
+      while (op2 < instructions.size() && (instructions[op2].opcode == mos6502::OpCode::sta 
+          || instructions[op2].type == ASMLine::Type::Directive)) {
         ++op2;
       }
       if (instructions[op2].opcode == mos6502::OpCode::lda
@@ -810,12 +847,14 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
     {
       ++branch_patch_count;
       const auto going_to = instructions[op].op.value;
-      const auto new_pos = "branch_patch_" + std::to_string(branch_patch_count);
+      const auto new_pos = "patch_" + std::to_string(branch_patch_count);
       // uh-oh too long of a branch, have to convert this to a jump...
       if (instructions[op].opcode == mos6502::OpCode::bne) {
+        const auto comment = instructions[op].comment;
         instructions[op] = mos6502(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_pos));
         instructions.insert(std::next(std::begin(instructions), op + 1), mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
         instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
+        instructions[op].comment = instructions[op+1].comment = instructions[op+2].comment = comment;
         return true;
       } else {
         throw std::runtime_error("Don't know how to reorg this branch");
@@ -938,7 +977,6 @@ int main()
   instructions.erase(
     std::remove_if(std::begin(instructions), std::end(instructions),
         [&used_labels](const auto &i){
-  //        if (i.type == ASMLine::Type::Directive) return true;
           if (i.type == ASMLine::Type::Label) {
             if (used_labels.count(i.text) == 0) {
               // remove all unused labels that aren't 'main'
@@ -952,18 +990,6 @@ int main()
   );
 
 
-  // remove everything up to the first label
-  // this will probably leave some dead code around at some point
-  // but it's a start
-  /*
-  instructions.erase(
-      std::begin(instructions),
-      std::find_if(std::begin(instructions),
-                   std::end(instructions),
-                   [](const auto &i){ return i.type == ASMLine::Type::Label; }
-        )
-      );
-*/
 
   const auto new_labels = 
     [&used_labels](){
@@ -972,24 +998,17 @@ int main()
         auto newl = l;
         std::transform(newl.begin(), newl.end(), newl.begin(), [](const auto c) { return std::tolower(c); });
         newl.erase(std::remove_if(newl.begin(), newl.end(), [](const auto c){ return !std::isalnum(c); }), std::end(newl));
-//        std::cout << "Old label: '" << l << "' new label: '" << newl << "'\n";
         result.emplace(std::make_pair(l, newl));
       }
       return result;
     }();
 
 
-//  for (const auto &i : instructions)
-//  {
-//    std::cout << "'" << i.text << "' '" << i.operand1.value << "' '" << i.operand2.value << "'\n";
-//  }
-
 
   for (auto &i : instructions)
   {
     if (i.type == ASMLine::Type::Label)
     {
-//      std::cout << "Updating label " << i.text << '\n';;
       i.text = new_labels.at(i.text);
     }
 
@@ -1004,10 +1023,6 @@ int main()
     }
   }
 
-//  for (const auto &i : instructions)
-//  {
-//    std::cout << "'" << i.text << "' '" << i.operand1.value << "' '" << i.operand2.value << "'\n";
-//  }
 
   std::vector<mos6502> new_instructions;
 
@@ -1037,5 +1052,4 @@ int main()
   {
     std::cout << i.to_string() << '\n';
   }
-
 }
