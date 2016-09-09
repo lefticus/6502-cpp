@@ -346,7 +346,8 @@ struct i386 : ASMLine
     pushl,
     sbbb,
     negb,
-    notb
+    notb,
+    retl
   };
 
   static OpCode parse_opcode(Type t, const std::string &o)
@@ -391,6 +392,7 @@ struct i386 : ASMLine
           if (o == "negb") return OpCode::negb;
           if (o == "sbbb") return OpCode::sbbb;
           if (o == "pushl") return OpCode::pushl;
+          if (o == "retl") return OpCode::retl;
         }
     }
     throw std::runtime_error("Unknown opcode: " + o);
@@ -461,6 +463,10 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
   switch(op)
   {
     case i386::OpCode::ret:
+      instructions.emplace_back(mos6502::OpCode::rts);
+      break;
+    case i386::OpCode::retl:
+      /// \todo I don't know if this is completely correct for retl translation
       instructions.emplace_back(mos6502::OpCode::rts);
       break;
     case i386::OpCode::movl:
@@ -557,6 +563,10 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         // ands the values
         instructions.emplace_back(mos6502::OpCode::lda, Operand(o1.type, fixup_8bit_literal(o1.value)));
         instructions.emplace_back(mos6502::OpCode::bit, get_register(o2.reg_num));
+      } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::literal) {
+        // ands the values
+        instructions.emplace_back(mos6502::OpCode::lda, Operand(o1.type, fixup_8bit_literal(o1.value)));
+        instructions.emplace_back(mos6502::OpCode::bit, o2);
       } else {
         throw std::runtime_error("Cannot translate testb instruction");
       }
