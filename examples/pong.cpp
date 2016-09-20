@@ -61,22 +61,15 @@ namespace {
     bool up,down,left,right,fire;
   };
 
+  ///
   /// New Code
-  
+  ///
   template<typename L1, typename L2, typename R1, typename R2>
-    auto operator+(std::pair<L1, L2> lhs, const std::pair<R1, R2> &rhs)
+    auto operator+=(std::pair<L1&, L2&> lhs, const std::pair<R1, R2> &rhs)
   {
     lhs.first  += rhs.first;
     lhs.second += rhs.second;
     return lhs;
-  }
-
-  template<typename L1, typename L2, typename R1, typename R2>
-    decltype(auto) operator+=(std::pair<L1, L2> &lhs, const std::pair<R1, R2> &rhs)
-  {
-    lhs.first  += rhs.first;
-    lhs.second += rhs.second;
-    return (lhs);
   }
 
   template<typename L1, typename L2, typename R1, typename R2>
@@ -119,6 +112,9 @@ namespace {
     std::pair<volatile uint8_t &, volatile uint8_t &> pos;
     uint8_t score = '0';
   };
+  ///
+  /// End New Code
+  ///
 
 
   
@@ -169,7 +165,8 @@ namespace {
     template<uint8_t r, uint8_t g, uint8_t b, typename Colors>
     static auto nearest_color(const Colors &colors)
     {
-      return *std::min_element(std::begin(colors), std::end(colors), color_comparison<r,g,b>);
+      return *std::min_element(std::begin(colors), std::end(colors), 
+                               color_comparison<r,g,b>);
     }
     
     auto frame(Player &p1, Player &p2)
@@ -206,14 +203,16 @@ namespace {
     }
 
     template<typename ...  D >
-      void write_multi_color_pixel(uint16_t loc, uint8_t d1, uint8_t d2, uint8_t d3, uint8_t d4, D ... d)
+      void write_multi_color_pixel(uint16_t loc, uint8_t d1, uint8_t d2, 
+                                   uint8_t d3, uint8_t d4, D ... d)
     {
       memory(loc) = (d1 << 6) | (d2 << 4) | (d3 << 2) | d4;
       write_multi_color_pixel(loc + 1, d...);
     }
 
     template<typename ...  D >
-      void write_pixel(uint16_t loc, bool d1, bool d2, bool d3, bool d4, bool d5, bool d6, bool d7, bool d8, D ... d)
+      void write_pixel(uint16_t loc, bool d1, bool d2, bool d3, bool d4, 
+                       bool d5, bool d6, bool d7, bool d8, D ... d)
     {
       memory(loc) = (d1 << 7) | (d2 << 6) | (d3 << 5) | (d4 << 4) | (d5 << 3) | (d6 << 2) | (d7 << 1) | d8;
       write_pixel(loc + 1, d...);
@@ -229,19 +228,21 @@ namespace {
       }
     }
 
+    ///
     /// New Code
+    ///
     void enable_sprite(const uint8_t sprite_number, const uint8_t memory_loc,
                        const bool multicolor, const bool low_priority,
                        const bool double_width, const bool double_height)
     {
-      memory(SPRITE_DATA_POINTERS + sprite_number) = SPRITE_STARTING_BANK + memory_loc;
+      memory(SPRITE_DATA_POINTERS + sprite_number) 
+        = SPRITE_STARTING_BANK + memory_loc;
       set_bit(SPRITE_ENABLE_BITS, sprite_number, true);
       set_bit(SPRITE_EXPAND_HORIZONTAL, sprite_number, double_width);
       set_bit(SPRITE_EXPAND_VERTICAL, sprite_number, double_height);
       set_bit(SPRITE_MULTICOLOR, sprite_number, multicolor);
       set_bit(SPRITE_PRIORITY, sprite_number, low_priority);
     }
-
 
     auto sprite_collisions() {
       const auto collisions = memory(SPRITE_COLLISIONS);
@@ -251,6 +252,7 @@ namespace {
         test_bit(collisions, 3),test_bit(collisions, 4),test_bit(collisions, 5),
         test_bit(collisions, 6),test_bit(collisions, 7));
     }
+    
     volatile uint8_t &sprite_1_color()
     {
       return memory(SPRITE_1_COLOR);
@@ -261,13 +263,17 @@ namespace {
       return memory(SPRITE_2_COLOR);
     }
     
-    std::pair<volatile uint8_t &, volatile uint8_t &> sprite_pos(const uint8_t sprite_num)
+    std::pair<volatile uint8_t &, volatile uint8_t &> 
+      sprite_pos(const uint8_t sprite_num)
     {
       return {
                memory(SPRITE_POSITION_REGISTERS + sprite_num * 2),
                memory(SPRITE_POSITION_REGISTERS + sprite_num * 2 + 1)
              };
     }
+    ///
+    /// End New Code
+    ///
 
 
   };  
@@ -300,7 +306,6 @@ int main()
 
   VIC_II vic;
 
- 
   vic.make_sprite(0,
               0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
               0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -358,7 +363,10 @@ int main()
   vic.sprite_1_color() = vic.nearest_color<255,0,0>(colors).num;     // red
   vic.sprite_2_color() = vic.nearest_color<0,255,0>(colors).num;     // green
 
-
+  
+  ///
+  /// Game Logic
+  ///
   std::pair<int8_t, int8_t> ball_velocity{1,1};
 
   const auto reset_ball = [&vic]{
@@ -371,39 +379,39 @@ int main()
   Player p1(1, vic.sprite_pos(1), {15,  255/2});
   Player p2(2, vic.sprite_pos(2), {255, 255/2});
   
-  
-  // Game Loop
+  ///
+  /// Game Loop
+  ///
   while (true) {    
     auto frame = vic.frame(p1, p2);
     
     if (const auto [s0, s1, s2, s3, s4, s5, s6, s7] = vic.sprite_collisions();
         s0 && (s1 || s2))
     {
-      auto &x_velocity = std::get<0>(ball_velocity);
-      x_velocity *= -1; //invert ball x velocity
+      // ball hit paddle, invert ball x velocity
+      ball_velocity *= std::make_pair(-1, 1);
       // "bounce" ball out of collision area
-      vic.sprite_pos(0).first += x_velocity;
+      vic.sprite_pos(0) += std::make_pair(ball_velocity.first, 0);
     }
 
+    
     // Update paddle positions
     p1.update_position();
     p2.update_position();
-   
-    // ball hit the top or bottom wall
-    if (const auto ball_y = vic.sprite_pos(0).second += std::get<1>(ball_velocity);
-        ball_y == 45 || ball_y == 235) 
-    {
-      std::get<1>(ball_velocity) *= -1; // invert ball y velocity
-    }
 
+    
     const auto score = [reset_ball](auto &player){
       // called when a player scores
       player.scored();
       reset_ball();
     };
-    
-    if (const auto ball_x = vic.sprite_pos(0).first += std::get<0>(ball_velocity); 
-        ball_x == 1) {
+
+    if (const auto [ball_x, ball_y] = vic.sprite_pos(0) += ball_velocity;
+        ball_y == 45 || ball_y == 235) 
+    {
+      // ball hit the top or bottom wall, invert ball y velocity
+      ball_velocity *= std::make_pair(1, -1);
+    } else if (ball_x == 1) {	
       // ball hit left wall, player 2 scored
       score(p2);
     } else if (ball_x == 255) {
