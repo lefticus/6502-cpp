@@ -112,6 +112,7 @@ struct mos6502 : ASMLine
     php,
     plp,
     lsr,
+    ror,
     AND,
     inc,
     dec,
@@ -148,6 +149,7 @@ struct mos6502 : ASMLine
       case OpCode::php:
       case OpCode::plp:
       case OpCode::lsr:
+      case OpCode::ror:
       case OpCode::AND:
       case OpCode::inc:
       case OpCode::dec:
@@ -184,6 +186,7 @@ struct mos6502 : ASMLine
       case OpCode::php:
       case OpCode::plp:
       case OpCode::lsr:
+      case OpCode::ror:
       case OpCode::AND:
       case OpCode::inc:
       case OpCode::dec:
@@ -248,6 +251,8 @@ struct mos6502 : ASMLine
         return "plp";
       case OpCode::lsr:
         return "lsr";
+      case OpCode::ror:
+        return "ror";
       case OpCode::AND:
         return "and";
       case OpCode::inc:
@@ -318,6 +323,7 @@ struct i386 : ASMLine
     movzbl,
     movzwl,
     shrb,
+    shrl,
     xorl,
     andl,
     andb,
@@ -363,6 +369,7 @@ struct i386 : ASMLine
           if (o == "movzwl") return OpCode::movzwl;
           if (o == "movzbl") return OpCode::movzbl;
           if (o == "shrb") return OpCode::shrb;
+          if (o == "shrl") return OpCode::shrl;
           if (o == "xorl") return OpCode::xorl;
           if (o == "andl") return OpCode::andl;
           if (o == "ret") return OpCode::ret;
@@ -475,6 +482,11 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         instructions.emplace_back(mos6502::OpCode::sta, get_register(o2.reg_num));
         instructions.emplace_back(mos6502::OpCode::lda, get_register(o1.reg_num, 1));
         instructions.emplace_back(mos6502::OpCode::sta, get_register(o2.reg_num, 1));
+      } else if (o1.type == Operand::Type::literal && o2.type == Operand::Type::reg) {
+	instructions.emplace_back(mos6502::OpCode::lda, Operand(o1.type, "#<" + o1.value));
+        instructions.emplace_back(mos6502::OpCode::sta, get_register(o2.reg_num));
+	instructions.emplace_back(mos6502::OpCode::lda, Operand(o1.type, "#>" + o1.value));
+        instructions.emplace_back(mos6502::OpCode::sta, get_register(o2.reg_num, 1));
       } else {
         throw std::runtime_error("Cannot translate movl instruction");
       }
@@ -486,7 +498,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         instructions.emplace_back(mos6502::OpCode::sta, get_register(o2.reg_num));
         instructions.emplace_back(mos6502::OpCode::sta, get_register(o2.reg_num, 1));
       } else {
-        throw std::runtime_error("Cannot translate movl instruction");
+        throw std::runtime_error("Cannot translate xorl instruction");
       }
       break;
     case i386::OpCode::movb:
@@ -548,6 +560,25 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         }
       } else {
         throw std::runtime_error("Cannot translate shrb instruction");
+      }
+      break;
+    case i386::OpCode::shrl:
+      if (o1.type == Operand::Type::reg || o2.type == Operand::Type::reg) {
+        const auto do_shift = [&instructions](const int reg_num) {
+          instructions.emplace_back(mos6502::OpCode::lsr, get_register(reg_num, 1));
+          instructions.emplace_back(mos6502::OpCode::ror, get_register(reg_num));
+        };
+
+        if (o1.type == Operand::Type::literal) {
+          const auto count = parse_8bit_literal(o1.value);
+          for (int i = 0; i < count; ++i) {
+            do_shift(o2.reg_num);
+          }
+        } else {
+          do_shift(o1.reg_num);
+        }
+      } else {
+        throw std::runtime_error("Cannot translate shrl instruction");
       }
       break;
     case i386::OpCode::testb:
@@ -625,7 +656,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         instructions.emplace_back(mos6502::OpCode::lda, get_register(o2.reg_num));
         instructions.emplace_back(mos6502::OpCode::cmp, Operand(o1.type, fixup_8bit_literal(o1.value)));
       } else {
-        throw std::runtime_error("Cannot translate cmb instruction");
+        throw std::runtime_error("Cannot translate cmpb instruction");
       }
       break;
     case i386::OpCode::andb:
@@ -684,7 +715,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         instructions.emplace_back(mos6502::OpCode::lda, get_register(o1.reg_num, 1));
         instructions.emplace_back(mos6502::OpCode::pha);
       } else {
-        throw std::runtime_error("Cannot translate sbb instruction");
+        throw std::runtime_error("Cannot translate pushl instruction");
       }
       break;
 
@@ -701,7 +732,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const i386::OpCod
         instructions.emplace_back(mos6502::OpCode::eor, Operand(Operand::Type::literal, "#$ff")); // invert the bits
         instructions.emplace_back(mos6502::OpCode::sta, get_register(o2.reg_num)); // place the value 
       } else {
-        throw std::runtime_error("Cannot translate sbb instruction");
+        throw std::runtime_error("Cannot translate sbbb instruction");
       }
       break;
 
