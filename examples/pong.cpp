@@ -121,10 +121,10 @@ namespace {
   
   struct VIC_II
   {
+    static constexpr uint8_t  SPRITE_ALIGNMENT          = 64;
     static constexpr uint16_t SPRITE_DATA_POINTERS      = 2040;
     static constexpr uint16_t VIDEO_REGISTERS           = 53248;
     static constexpr uint16_t VIDEO_MEMORY              = 1024;
-    static constexpr uint8_t  SPRITE_STARTING_BANK      = 192;
     static constexpr uint16_t BORDER_COLOR              = 53280;
     static constexpr uint16_t BACKGROUND_COLOR          = 53281;
     static constexpr uint16_t SPRITE_POSITION_REGISTERS = VIDEO_REGISTERS;
@@ -191,52 +191,63 @@ namespace {
       
       return Frame(*this, p1, p2);
     }
-    
-    void write_multi_color_pixel(uint16_t)
+
+    static void write_multi_color_pixel(uint8_t*)
     {
       // 0th case
     }
 
-    void write_pixel(uint16_t)
+    static void write_pixel(uint8_t*)
     {
       // 0th case
     }
 
     template<typename ...  D >
-      void write_multi_color_pixel(uint16_t loc, uint8_t d1, uint8_t d2, 
-                                   uint8_t d3, uint8_t d4, D ... d)
+      static void write_multi_color_pixel(uint8_t* mem, uint8_t d1, uint8_t d2,
+                                          uint8_t d3, uint8_t d4, D ... d)
     {
-      memory(loc) = (d1 << 6) | (d2 << 4) | (d3 << 2) | d4;
-      write_multi_color_pixel(loc + 1, d...);
+      *mem = (d1 << 6) | (d2 << 4) | (d3 << 2) | d4;
+      write_multi_color_pixel(mem + 1, d...);
     }
 
     template<typename ...  D >
-      void write_pixel(uint16_t loc, bool d1, bool d2, bool d3, bool d4, 
-                       bool d5, bool d6, bool d7, bool d8, D ... d)
+      static void write_pixel(uint8_t *mem, bool d1, bool d2, bool d3, bool d4,
+                              bool d5, bool d6, bool d7, bool d8, D ... d)
     {
-      memory(loc) = (d1 << 7) | (d2 << 6) | (d3 << 5) | (d4 << 4) | (d5 << 3) | (d6 << 2) | (d7 << 1) | d8;
-      write_pixel(loc + 1, d...);
+      *mem = (d1 << 7) | (d2 << 6) | (d3 << 5) | (d4 << 4) | (d5 << 3) | (d6 << 2) | (d7 << 1) | d8;
+      write_pixel(mem + 1, d...);
     }
 
-    template<typename ... D>
-      void make_sprite(uint8_t memory_loc, D ... d)
-    {
-      if constexpr(sizeof...(d) == 12 * 21) {
-        write_multi_color_pixel((SPRITE_STARTING_BANK + memory_loc) * 64, d...);
-      } else {
-        write_pixel((SPRITE_STARTING_BANK + memory_loc) * 64, d...);
+    struct Sprite {
+      alignas(SPRITE_ALIGNMENT) uint8_t memory[63];
+      template<typename ... D>
+      Sprite(D ... d)
+      {
+        if constexpr(sizeof...(d) == 12 * 21) {
+            write_multi_color_pixel(memory, d...);
+          } else {
+          write_pixel(memory, d...);
+        }
       }
-    }
+    };
 
     ///
     /// New Code
     ///
-    void enable_sprite(const uint8_t sprite_number, const uint8_t memory_loc,
+    void enable_sprite(const uint8_t sprite_number, const Sprite& bitmap,
                        const bool multicolor, const bool low_priority,
                        const bool double_width, const bool double_height)
     {
-      memory(SPRITE_DATA_POINTERS + sprite_number) 
-        = SPRITE_STARTING_BANK + memory_loc;
+#if 0 // error: static_assert expression is not an integral constant
+      static_assert((std::ptrdiff_t(bitmap.memory) & 0x7000) != 0x1000,
+		    "The addresses 0x1000 to 0x1fff and 0x9000 to 0x9fff"
+		    "point to the character generator ROM, not RAM.");
+      static_assert(std::ptrdiff_t(bitmap.memory) < 0x4000,
+		    "The data must be within the first (default)"
+		    " 16KiB VIC-II bank.");
+#endif
+      memory(SPRITE_DATA_POINTERS + sprite_number)
+        = (std::ptrdiff_t(bitmap.memory) & 0x3fff) / SPRITE_ALIGNMENT;
       set_bit(SPRITE_ENABLE_BITS, sprite_number, true);
       set_bit(SPRITE_EXPAND_HORIZONTAL, sprite_number, double_width);
       set_bit(SPRITE_EXPAND_VERTICAL, sprite_number, double_height);
@@ -280,8 +291,56 @@ namespace {
 
 }
 
+/// The ball image. This has to be declared const in the global scope,
+/// or otherwise the data will not be initialized at compilation time.
+const VIC_II::Sprite sBall(
+              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,1,1,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,
+              0,0,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
+              0,0,0,0,0,1,1,1,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
+              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
+              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
+              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
+              0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,
+              0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,
+              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
+              0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
+              0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
+              0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+             );
 
-
+/// The bat image.
+const VIC_II::Sprite sBat(
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,2,2,0,0,0,0,0,
+              0,0,0,0,0,3,3,0,0,0,0,0,
+              0,0,0,0,0,1,1,0,0,0,0,0,
+              0,0,0,0,0,3,3,0,0,0,0,0,
+              0,0,0,0,0,1,1,0,0,0,0,0,
+              0,0,0,0,0,3,3,0,0,0,0,0
+             );
 
 int main()
 {
@@ -306,58 +365,9 @@ int main()
 
   VIC_II vic;
 
-  vic.make_sprite(0,
-              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,1,1,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,
-              0,0,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-              0,0,0,0,0,1,1,1,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
-              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
-              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
-              0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,
-              0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,
-              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
-              0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-              0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-              0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-             );
-
-  vic.make_sprite(1,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,3,3,0,0,0,0,0,
-              0,0,0,0,0,1,1,0,0,0,0,0,
-              0,0,0,0,0,3,3,0,0,0,0,0,
-              0,0,0,0,0,1,1,0,0,0,0,0,
-              0,0,0,0,0,3,3,0,0,0,0,0
-             );
-
-  vic.enable_sprite(0, 0, false, true, false, false);
-  vic.enable_sprite(1, 1, true, false, false, true);
-  vic.enable_sprite(2, 1, true, false, false, true);
-
+  vic.enable_sprite(0, sBall, false, true, false, false);
+  vic.enable_sprite(1, sBat, true, false, false, true);
+  vic.enable_sprite(2, sBat, true, false, false, true);
   vic.border()         = vic.nearest_color<128,128,128>(colors).num; // 50% grey
   vic.background()     = vic.nearest_color<0,0,0>(colors).num;       // black
   vic.sprite_1_color() = vic.nearest_color<255,0,0>(colors).num;     // red
