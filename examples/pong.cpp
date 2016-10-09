@@ -192,74 +192,49 @@ namespace {
       return Frame(*this, p1, p2);
     }
 
-    static void write_multi_color_line(uint8_t*)
-    {
-      // 0th case
-    }
+    template<bool multicolor>
+    struct SpriteLine {
+      uint8_t pixels[3];
 
-    static void write_line(uint8_t*)
-    {
-      // 0th case
-    }
+      typedef uint_least64_t numeric_t;
 
-    static constexpr uint8_t multi_color_byte(uint_least16_t bits)
-    {
-      // 0aa0bb0cc0dd -> 0aabbccdd
-      return
-        (bits & 3) |
-        (bits >> 1 & 3 << 2) |
-        (bits >> 2 & 3 << 4) |
-        (bits >> 3 & 3 << 6);
-    }
+      /// Pixel format converter.
+      static constexpr uint8_t c(const numeric_t m)
+      {
+        if constexpr (multicolor)
+          // 0b00ii00jj00kk00ll -> 0biijjkkll
+         return uint8_t(m >> 0 & 3 << 0) |
+                uint8_t(m >> 2 & 3 << 2) |
+                uint8_t(m >> 4 & 3 << 4) |
+                uint8_t(m >> 6 & 3 << 6);
+        return uint8_t(m);
+      }
 
-    template<typename ...  D >
-    static void write_multi_color_line(uint8_t* mem, uint_least64_t l,
-                                       D ... d)
-    {
-      mem[0] = multi_color_byte(uint_least16_t(l >> 24));
-      mem[1] = multi_color_byte(uint_least16_t(l >> 12));
-      mem[2] = multi_color_byte(uint_least16_t(l));
+      /// Input bits per byte.
+      constexpr static auto ibb = multicolor ? 16 : 8;
 
-      write_multi_color_line(mem + 3, d...);
-    }
+      /// Constructor.
+      constexpr SpriteLine(const numeric_t line)
+        : pixels{c(line >> (2 * ibb)), c(line >> ibb), c(line)}
+      {}
+    };
 
-    template<typename ...  D >
-    static void write_line(uint8_t *mem, uint_least32_t l, D ... d)
-    {
-      mem[0] = uint8_t(l >> 16);
-      mem[1] = uint8_t(l >> 8);
-      mem[2] = uint8_t(l);
-      write_line(mem + 3, d...);
-    }
-
+    template<bool multicolor>
     struct Sprite {
-      alignas(SPRITE_ALIGNMENT) uint8_t memory[63];
+      typedef SpriteLine<multicolor> Line;
+      alignas(SPRITE_ALIGNMENT) Line lines[SPRITE_ALIGNMENT / sizeof(Line)];
     };
 
-    struct HighResSprite : public Sprite
-    {
-      template<typename ... D>
-      HighResSprite(D ... d) : Sprite()
-      {
-        static_assert(sizeof...(d) == 21);
-        write_line(memory, d...);
-      }
-    };
-
-    struct MultiColorSprite : public Sprite
-    {
-      template<typename ... D>
-      MultiColorSprite(D ... d) : Sprite()
-      {
-        write_multi_color_line(memory, d...);
-      }
-    };
+    typedef Sprite<false> HighResSprite;
+    typedef Sprite<true> MultiColorSprite;
 
     ///
     /// New Code
     ///
-    void enable_sprite(const uint8_t sprite_number, const Sprite& bitmap,
-                       const bool multicolor, const bool low_priority,
+    template<bool multicolor>
+    void enable_sprite(const uint8_t sprite_number,
+                       const Sprite<multicolor>& bitmap,
+                       const bool low_priority,
                        const bool double_width, const bool double_height)
     {
 #if 0 // error: static_assert expression is not an integral constant
@@ -271,29 +246,12 @@ namespace {
 		    " 16KiB VIC-II bank.");
 #endif
       memory(SPRITE_DATA_POINTERS + sprite_number)
-        = (std::ptrdiff_t(bitmap.memory) & 0x3fff) / SPRITE_ALIGNMENT;
+        = (std::ptrdiff_t(bitmap.lines) & 0x3fff) / SPRITE_ALIGNMENT;
       set_bit(SPRITE_ENABLE_BITS, sprite_number, true);
       set_bit(SPRITE_EXPAND_HORIZONTAL, sprite_number, double_width);
       set_bit(SPRITE_EXPAND_VERTICAL, sprite_number, double_height);
       set_bit(SPRITE_MULTICOLOR, sprite_number, multicolor);
       set_bit(SPRITE_PRIORITY, sprite_number, low_priority);
-    }
-
-    void enable_sprite(const uint8_t sprite_number,
-                       const HighResSprite& bitmap,
-                       const bool low_priority,
-                       const bool double_width, const bool double_height)
-    {
-      enable_sprite(sprite_number, bitmap, false, low_priority,
-                    double_width, double_height);
-    }
-    void enable_sprite(const uint8_t sprite_number,
-                       const MultiColorSprite& bitmap,
-                       const bool low_priority,
-                       const bool double_width, const bool double_height)
-    {
-      enable_sprite(sprite_number, bitmap, true, low_priority,
-                    double_width, double_height);
     }
 
     auto sprite_collisions() {
@@ -332,56 +290,57 @@ namespace {
 
 }
 
-/// The ball image. This has to be declared const in the global scope,
-/// or otherwise the data will not be initialized at compilation time.
-const VIC_II::HighResSprite sBall(
-              0b00000000000000000000000,
-              0b00000000000000000000000,
-              0b00000000111111000000000,
-              0b00000011111111110000000,
-              0b00000110111111111000000,
-              0b00001100011111111100000,
-              0b00001110111111111100000,
-              0b00011111111111111110000,
-              0b00011111111111111110000,
-              0b00011111111111111110000,
-              0b00000111111111111000000,
-              0b00011000000000000110000,
-              0b00011111111111111110000,
-              0b00001111111111111100000,
-              0b00001111111111111100000,
-              0b00000111111111111000000,
-              0b00000011111111110000000,
-              0b00000000111111000000000,
-              0b00000000000000000000000,
-              0b00000000000000000000000,
-              0b00000000000000000000000
-             );
+/// The ball image.
+static const VIC_II::HighResSprite sBall
+{{
+  0b000000000000000000000000,
+  0b000000000000000000000000,
+  0b000000000111111000000000,
+  0b000000011111111110000000,
+  0b000000110111111111000000,
+  0b000001100011111111100000,
+  0b000001110111111111100000,
+  0b000011111111111111110000,
+  0b000011111111111111110000,
+  0b000011111111111111110000,
+  0b000000111111111111000000,
+  0b000011000000000000110000,
+  0b000011111111111111110000,
+  0b000001111111111111100000,
+  0b000001111111111111100000,
+  0b000000111111111111000000,
+  0b000000011111111110000000,
+  0b000000000111111000000000,
+  0b000000000000000000000000,
+  0b000000000000000000000000,
+  0b000000000000000000000000
+}};
 
 /// The bat image.
-const VIC_II::MultiColorSprite sBat(
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000002200000,
-              0000003300000,
-              0000001100000,
-              0000003300000,
-              0000001100000,
-              0000003300000
-             );
+static const VIC_II::MultiColorSprite sBat
+{{
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000002200000,
+  0x000003300000,
+  0x000001100000,
+  0x000003300000,
+  0x000001100000,
+  0x000003300000
+}};
 
 int main()
 {
