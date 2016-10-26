@@ -121,10 +121,10 @@ namespace {
   
   struct VIC_II
   {
+    static constexpr uint8_t  SPRITE_ALIGNMENT          = 64;
     static constexpr uint16_t SPRITE_DATA_POINTERS      = 2040;
     static constexpr uint16_t VIDEO_REGISTERS           = 53248;
     static constexpr uint16_t VIDEO_MEMORY              = 1024;
-    static constexpr uint8_t  SPRITE_STARTING_BANK      = 192;
     static constexpr uint16_t BORDER_COLOR              = 53280;
     static constexpr uint16_t BACKGROUND_COLOR          = 53281;
     static constexpr uint16_t SPRITE_POSITION_REGISTERS = VIDEO_REGISTERS;
@@ -191,52 +191,62 @@ namespace {
       
       return Frame(*this, p1, p2);
     }
-    
-    void write_multi_color_pixel(uint16_t)
-    {
-      // 0th case
-    }
 
-    void write_pixel(uint16_t)
-    {
-      // 0th case
-    }
+    template<bool multicolor>
+    struct SpriteLine {
+      uint8_t pixels[3];
 
-    template<typename ...  D >
-      void write_multi_color_pixel(uint16_t loc, uint8_t d1, uint8_t d2, 
-                                   uint8_t d3, uint8_t d4, D ... d)
-    {
-      memory(loc) = (d1 << 6) | (d2 << 4) | (d3 << 2) | d4;
-      write_multi_color_pixel(loc + 1, d...);
-    }
+      typedef uint_least64_t numeric_t;
 
-    template<typename ...  D >
-      void write_pixel(uint16_t loc, bool d1, bool d2, bool d3, bool d4, 
-                       bool d5, bool d6, bool d7, bool d8, D ... d)
-    {
-      memory(loc) = (d1 << 7) | (d2 << 6) | (d3 << 5) | (d4 << 4) | (d5 << 3) | (d6 << 2) | (d7 << 1) | d8;
-      write_pixel(loc + 1, d...);
-    }
-
-    template<typename ... D>
-      void make_sprite(uint8_t memory_loc, D ... d)
-    {
-      if constexpr(sizeof...(d) == 12 * 21) {
-        write_multi_color_pixel((SPRITE_STARTING_BANK + memory_loc) * 64, d...);
-      } else {
-        write_pixel((SPRITE_STARTING_BANK + memory_loc) * 64, d...);
+      /// Pixel format converter.
+      static constexpr uint8_t c(const numeric_t m)
+      {
+        if constexpr (multicolor)
+          // 0b00ii00jj00kk00ll -> 0biijjkkll
+         return uint8_t(m >> 0 & 3 << 0) |
+                uint8_t(m >> 2 & 3 << 2) |
+                uint8_t(m >> 4 & 3 << 4) |
+                uint8_t(m >> 6 & 3 << 6);
+        return uint8_t(m);
       }
-    }
+
+      /// Input bits per byte.
+      constexpr static auto ibb = multicolor ? 16 : 8;
+
+      /// Constructor.
+      constexpr SpriteLine(const numeric_t line)
+        : pixels{c(line >> (2 * ibb)), c(line >> ibb), c(line)}
+      {}
+    };
+
+    template<bool multicolor>
+    struct Sprite {
+      typedef SpriteLine<multicolor> Line;
+      alignas(SPRITE_ALIGNMENT) Line lines[SPRITE_ALIGNMENT / sizeof(Line)];
+    };
+
+    typedef Sprite<false> HighResSprite;
+    typedef Sprite<true> MultiColorSprite;
 
     ///
     /// New Code
     ///
-    void enable_sprite(const uint8_t sprite_number, const uint8_t memory_loc,
-                       const bool multicolor, const bool low_priority,
+    template<bool multicolor>
+    void enable_sprite(const uint8_t sprite_number,
+                       const Sprite<multicolor>& bitmap,
+                       const bool low_priority,
                        const bool double_width, const bool double_height)
     {
-      memory(SPRITE_DATA_POINTERS + sprite_number) 
-        = SPRITE_STARTING_BANK + memory_loc;
+#if 0 // error: static_assert expression is not an integral constant
+      static_assert((std::ptrdiff_t(bitmap.memory) & 0x7000) != 0x1000,
+		    "The addresses 0x1000 to 0x1fff and 0x9000 to 0x9fff"
+		    "point to the character generator ROM, not RAM.");
+      static_assert(std::ptrdiff_t(bitmap.memory) < 0x4000,
+		    "The data must be within the first (default)"
+		    " 16KiB VIC-II bank.");
+#endif
+      memory(SPRITE_DATA_POINTERS + sprite_number)
+        = (std::ptrdiff_t(bitmap.lines) & 0x3fff) / SPRITE_ALIGNMENT;
       set_bit(SPRITE_ENABLE_BITS, sprite_number, true);
       set_bit(SPRITE_EXPAND_HORIZONTAL, sprite_number, double_width);
       set_bit(SPRITE_EXPAND_VERTICAL, sprite_number, double_height);
@@ -280,9 +290,6 @@ namespace {
 
 }
 
-
-
-
 int main()
 {
   const std::array<Color, 16> colors = {{
@@ -306,58 +313,60 @@ int main()
 
   VIC_II vic;
 
-  vic.make_sprite(0,
-              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,1,1,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,
-              0,0,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-              0,0,0,0,0,1,1,1,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
-              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
-              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
-              0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,
-              0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,
-              0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,
-              0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-              0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-              0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-             );
+  /// The ball image.
+  static const VIC_II::HighResSprite sBall
+  {{
+      0b000000000000000000000000,
+      0b000000000000000000000000,
+      0b000000000111111000000000,
+      0b000000011111111110000000,
+      0b000000110111111111000000,
+      0b000001100011111111100000,
+      0b000001110111111111100000,
+      0b000011111111111111110000,
+      0b000011111111111111110000,
+      0b000011111111111111110000,
+      0b000000111111111111000000,
+      0b000011000000000000110000,
+      0b000011111111111111110000,
+      0b000001111111111111100000,
+      0b000001111111111111100000,
+      0b000000111111111111000000,
+      0b000000011111111110000000,
+      0b000000000111111000000000,
+      0b000000000000000000000000,
+      0b000000000000000000000000,
+      0b000000000000000000000000
+  }};
 
-  vic.make_sprite(1,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,2,2,0,0,0,0,0,
-              0,0,0,0,0,3,3,0,0,0,0,0,
-              0,0,0,0,0,1,1,0,0,0,0,0,
-              0,0,0,0,0,3,3,0,0,0,0,0,
-              0,0,0,0,0,1,1,0,0,0,0,0,
-              0,0,0,0,0,3,3,0,0,0,0,0
-             );
+  /// The bat image.
+  static const VIC_II::MultiColorSprite sBat = {{
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000002200000,
+    0x000003300000,
+    0x000001100000,
+    0x000003300000,
+    0x000001100000,
+    0x000003300000
+  }};
 
-  vic.enable_sprite(0, 0, false, true, false, false);
-  vic.enable_sprite(1, 1, true, false, false, true);
-  vic.enable_sprite(2, 1, true, false, false, true);
-
+  vic.enable_sprite(0, sBall, true, false, false);
+  vic.enable_sprite(1, sBat, false, false, true);
+  vic.enable_sprite(2, sBat, false, false, true);
   vic.border()         = vic.nearest_color<128,128,128>(colors).num; // 50% grey
   vic.background()     = vic.nearest_color<0,0,0>(colors).num;       // black
   vic.sprite_1_color() = vic.nearest_color<255,0,0>(colors).num;     // red
