@@ -6,22 +6,22 @@ enum class Colors : uint8_t
   BLACK=0x00
 };
 
-volatile uint8_t &memory_loc(const uint16_t loc)
+inline volatile uint8_t &memory_loc(const uint16_t loc)
 {
   return *reinterpret_cast<volatile uint8_t *>(loc);
 }
 
-void decrement_border_color()
+inline void decrement_border_color()
 {
   --memory_loc(0xd020);
 }
 
-void increment_border_color()
+inline void increment_border_color()
 {
   ++memory_loc(0xd020);
 }
 
-bool joystick_down()
+inline bool joystick_down()
 {
   uint8_t joystick_state = memory_loc(0xDC00);
   return (joystick_state & 0x2) == 0;

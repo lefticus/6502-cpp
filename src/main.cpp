@@ -34,6 +34,10 @@ std::string fixup_8bit_literal(const std::string &s)
   {
     return "#" + std::to_string(static_cast<uint8_t>(parse_8bit_literal(s)));
   } else {
+    if (s.starts_with("lo8(") && s.ends_with(")")) {
+      return "#<" + s.substr(4, s.size() - 5);
+    }
+
     return s;
   }
 }
@@ -60,6 +64,7 @@ struct Operand
   Operand(const Type t, std::string v)
     : type(t), value(std::move(v))
   {
+
     assert(type == Type::literal);
   }
 
@@ -76,6 +81,8 @@ struct mos6502 : ASMLine
   {
     unknown,
     lda,
+    asl,
+    rol,
     ldy,
     tay,
     tya,
@@ -140,6 +147,8 @@ struct mos6502 : ASMLine
       case OpCode::clc:
       case OpCode::sec:
       case OpCode::bit:
+      case OpCode::asl:
+      case OpCode::rol:
       case OpCode::unknown:
         break;
     }
@@ -179,6 +188,8 @@ struct mos6502 : ASMLine
       case OpCode::rts:
       case OpCode::clc:
       case OpCode::sec:
+      case OpCode::rol:
+      case OpCode::asl:
       case OpCode::unknown:
         break;
     }
@@ -206,6 +217,10 @@ struct mos6502 : ASMLine
     switch (o) {
       case OpCode::lda:
         return "lda";
+      case OpCode::asl:
+        return "asl";
+      case OpCode::rol:
+        return "rol";
       case OpCode::ldy:
         return "ldy";
       case OpCode::tay:
@@ -482,7 +497,21 @@ struct AVR : ASMLine
     unknown,
     ldi,
     sts,
-    ret
+    ret,
+    mov,
+    lsl,
+    rol,
+    rcall,
+    ld,
+    subi,
+    st,
+    lds,
+    lsr,
+    andi,
+    eor,
+    sbrc,
+    sbrs,
+    rjmp
   };
 
   static OpCode parse_opcode(Type t, const std::string &o)
@@ -495,9 +524,23 @@ struct AVR : ASMLine
         return OpCode::unknown;
       case Type::Instruction:
         {
-          if (o == "ldi") { std::cout << "; parsed ldi\n"; return OpCode::ldi; }
+          if (o == "ldi") return OpCode::ldi;
           if (o == "sts") return OpCode::sts;
           if (o == "ret") return OpCode::ret;
+          if (o == "mov") return OpCode::mov;
+          if (o == "lsl") return OpCode::lsl;
+          if (o == "rol") return OpCode::rol;
+          if (o == "rcall") return OpCode::rcall;
+          if (o == "ld") return OpCode::ld;
+          if (o == "subi") return OpCode::subi;
+          if (o == "st") return OpCode::st;
+          if (o == "lds") return OpCode::lds;
+          if (o == "lsr") return OpCode::lsr;
+          if (o == "andi") return OpCode::andi;
+          if (o == "eor") return OpCode::eor;
+          if (o == "sbrc") return OpCode::sbrc;
+          if (o == "rjmp") return OpCode::rjmp;
+          if (o == "sbrs") return OpCode::sbrs;
         }
     }
     throw std::runtime_error("Unknown opcode: " + o);
@@ -538,7 +581,7 @@ static Operand get_register(const int reg_num, [[maybe_unused]] const int offset
     case 29: return Operand(Operand::Type::literal, "$5e");
     case 30: return Operand(Operand::Type::literal, "$5f");
     case 31: return Operand(Operand::Type::literal, "$60");
-  };
+  }
   throw std::runtime_error("Unhandled register number: " + std::to_string(reg_num));
 }
 
@@ -571,20 +614,111 @@ static Operand get_register(const int reg_num, [[maybe_unused]] const int offset
 
 void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode op, const Operand &o1, const Operand &o2)
 {
-  std::cout << "; translating avr instruction : " << static_cast<int>(op) << '\n';
   switch(op)
   {
     case AVR::OpCode::ldi:
-      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, o2.value));
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal(o2.value)));
       instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1.reg_num));
       return;
     case AVR::OpCode::sts:
       instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o2.reg_num));
-      instructions.emplace_back(mos6502::OpCode::sta, Operand(o2.type, o2.value));
+      instructions.emplace_back(mos6502::OpCode::sta, Operand(o1.type, o1.value));
       return;
     case AVR::OpCode::ret:
       instructions.emplace_back(mos6502::OpCode::rts);
       return;
+    case AVR::OpCode::mov:
+      instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o2.reg_num));
+      instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1.reg_num));
+      return;
+    case AVR::OpCode::lsl:
+      instructions.emplace_back(mos6502::OpCode::asl, AVR::get_register(o1.reg_num));
+      return;
+    case AVR::OpCode::rol:
+      instructions.emplace_back(mos6502::OpCode::rol, AVR::get_register(o1.reg_num));
+      return;
+    case AVR::OpCode::rcall:
+      instructions.emplace_back(mos6502::OpCode::jsr, Operand(o1.type, o1.value));
+      return;
+    case AVR::OpCode::ld:
+    {
+      if (o2.value == "Z") {
+        instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, "#0"));
+        instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal,
+                                                                "(" + AVR::get_register(30).value + "), Y"));
+        instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1.reg_num));
+        return;
+      }
+      throw std::runtime_error("Unhandled ld to non-Z");
+    }
+    case AVR::OpCode::subi:
+    {
+      // to do: deal with Carry bit (and other flags) nonsense from AVR
+      // if |x| < |y| -> x-y +carry
+      // for these special cases with -(1) and -(-(1))
+      if (o2.value == "lo8(-(-1))") {
+        instructions.emplace_back(mos6502::OpCode::dec, AVR::get_register(o1.reg_num));
+        return;
+      }
+      if (o2.value == "lo8(-(1))") {
+        instructions.emplace_back(mos6502::OpCode::inc, AVR::get_register(o1.reg_num));
+        return;
+      }
+
+      throw std::runtime_error("Unhandled subi sub case");
+    }
+    case AVR::OpCode::st: {
+      if (o1.value == "Z") {
+        instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o2.reg_num));
+        instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, "#0"));
+        instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal,
+                                                                "(" + AVR::get_register(30).value + "), Y"));
+
+        return;
+      }
+      throw std::runtime_error("Unhandled st with non-Z parameter");
+    }
+    case AVR::OpCode::lds: {
+      instructions.emplace_back(mos6502::OpCode::lda, o2);
+      instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1.reg_num));
+      return;
+    }
+    case AVR::OpCode::lsr: {
+      instructions.emplace_back(mos6502::OpCode::lsr, AVR::get_register(o1.reg_num));
+      return;
+    }
+    case AVR::OpCode::andi: {
+      instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1.reg_num));
+      instructions.emplace_back(mos6502::OpCode::AND, Operand(o2.type, fixup_8bit_literal(o2.value)));
+      instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1.reg_num));
+      return;
+    }
+    case AVR::OpCode::eor: {
+      instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1.reg_num));
+      instructions.emplace_back(mos6502::OpCode::eor, AVR::get_register(o2.reg_num));
+      instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1.reg_num));
+      return;
+    }
+    case AVR::OpCode::sbrc: {
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal(std::to_string(1 << (atoi(o2.value.c_str())-1)))));
+      instructions.emplace_back(mos6502::OpCode::bit, AVR::get_register(o1.reg_num));
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
+      instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
+      return;
+    }
+    case AVR::OpCode::sbrs: {
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal(std::to_string(1 << (atoi(o2.value.c_str())-1)))));
+      instructions.emplace_back(mos6502::OpCode::bit, AVR::get_register(o1.reg_num));
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_label_name));
+      instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
+      return;
+    }
+    case AVR::OpCode::rjmp: {
+      instructions.emplace_back(mos6502::OpCode::jmp, o1);
+      return;
+    }
   }
 
   throw std::runtime_error("Could not translate unhandled instruction");
@@ -905,7 +1039,6 @@ void log(LogLevel ll, const int line_no, const std::string &line, const std::str
 template<typename FromArch>
 void to_mos6502(const FromArch &i, std::vector<mos6502> &instructions)
 {
-  std::cout << "; arch " << typeid(FromArch).name() << '\n';
   try {
     switch(i.type)
     {
@@ -916,8 +1049,6 @@ void to_mos6502(const FromArch &i, std::vector<mos6502> &instructions)
         instructions.emplace_back(i.type, i.text);
         return;
       case ASMLine::Type::Instruction:
-        instructions.emplace_back(ASMLine::Type::Directive, "; " + i.line_text);
-
         const auto head = instructions.size();
 
         try {
@@ -1104,7 +1235,6 @@ void run(std::istream &input) {
   {
     std::string line;
     getline(input, line);
-    std::cout << "; read line: '" << line << "'\n";
     try {
       std::smatch match;
       if (std::regex_match(line, match, Label))
@@ -1132,11 +1262,7 @@ void run(std::istream &input) {
     ++lineno;
   }
 
-  std::cout << "; done reading file" << std::endl;
-
   std::set<std::string> labels;
-
-  std::cout << "; " << instructions.size() << " instructions parsed" << std::endl;
 
   for (const auto &i : instructions)
   {
@@ -1212,10 +1338,27 @@ void run(std::istream &input) {
 
   std::vector<mos6502> new_instructions;
 
+  bool skip_next_instruction = false;
+  std::string next_label_name;
   for (const auto &i : instructions)
   {
-    std::cout << "; translating instruction: '" << i.text << '\'' << std::endl;
     to_mos6502(i, new_instructions);
+
+    // intentionally copy so we don't invalidate the reference
+    const auto last_instruction = new_instructions.back();
+    const auto last_instruction_loc = new_instructions.size() - 1;
+
+    if (skip_next_instruction) {
+      new_instructions.emplace_back(ASMLine::Type::Label, next_label_name);
+      skip_next_instruction = false;
+    }
+
+    if (last_instruction.type == ASMLine::Type::Directive && last_instruction.text.starts_with("skip_next_instruction"))
+    {
+      skip_next_instruction = true;
+      next_label_name = last_instruction.text;
+      new_instructions.erase(std::next(new_instructions.begin(), static_cast<std::ptrdiff_t>(last_instruction_loc)));
+    }
   }
 
   while (fix_overwritten_flags(new_instructions))
