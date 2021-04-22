@@ -1,6 +1,6 @@
 #include <cstdint>
 
-enum class Colors : uint8_t
+enum Colors : uint8_t
 {
   WHITE=0x01
 };
