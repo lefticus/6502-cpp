@@ -700,7 +700,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
       return;
     }
     case AVR::OpCode::sbrc: {
-      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (atoi(o2.value.c_str())-1)))));
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (atoi(o2.value.c_str()))))));
       instructions.emplace_back(mos6502::OpCode::bit, AVR::get_register(o1.reg_num));
       std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
       instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
@@ -708,7 +708,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
       return;
     }
     case AVR::OpCode::sbrs: {
-      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (atoi(o2.value.c_str())-1)))));
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (atoi(o2.value.c_str()))))));
       instructions.emplace_back(mos6502::OpCode::bit, AVR::get_register(o1.reg_num));
       std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
       instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_label_name));
