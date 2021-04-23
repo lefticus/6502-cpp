@@ -700,7 +700,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
       return;
     }
     case AVR::OpCode::sbrc: {
-      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal(std::to_string(1 << (atoi(o2.value.c_str())-1)))));
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (atoi(o2.value.c_str())-1)))));
       instructions.emplace_back(mos6502::OpCode::bit, AVR::get_register(o1.reg_num));
       std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
       instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
@@ -708,7 +708,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
       return;
     }
     case AVR::OpCode::sbrs: {
-      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal(std::to_string(1 << (atoi(o2.value.c_str())-1)))));
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (atoi(o2.value.c_str())-1)))));
       instructions.emplace_back(mos6502::OpCode::bit, AVR::get_register(o1.reg_num));
       std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
       instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_label_name));
@@ -1028,12 +1028,12 @@ std::string to_string(const LogLevel ll)
 template<typename FromArch>
 void log(LogLevel ll, const FromArch &i, const std::string &message)
 {
-  std::cout << to_string(ll) << ": " << i.line_num << ": " << message << ": `" << i.line_text << "`\n";
+  std::cerr << to_string(ll) << ": " << i.line_num << ": " << message << ": `" << i.line_text << "`\n";
 }
 
 void log(LogLevel ll, const int line_no, const std::string &line, const std::string &message)
 {
-  std::cout << to_string(ll) << ": "  << line_no << ": " << message << ": `" << line << "`\n";
+  std::cerr << to_string(ll) << ": "  << line_no << ": " << message << ": `" << line << "`\n";
 }
 
 template<typename FromArch>
@@ -1217,10 +1217,9 @@ bool fix_overwritten_flags(std::vector<mos6502> &instructions)
 
 template<typename Arch>
 void run(std::istream &input) {
-  std::cout << "; run\n";
   std::regex Comment(R"(\s*\#.*)");
   std::regex Label(R"(^(\S+):.*)");
-  std::regex Directive(R"(^\s+(\..+))");
+  std::regex Directive(R"(^\s*(\..+))");
   std::regex UnaryInstruction(R"(^\s+(\S+)\s+(\S+))");
   std::regex BinaryInstruction(R"(^\s+(\S+)\s+(\S+),\s*(\S+))");
   std::regex Instruction(R"(^\s+(\S+))");
@@ -1251,9 +1250,6 @@ void run(std::istream &input) {
       } else if (std::regex_match(line, match, Instruction)) {
         instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1]);
       } else if (line == "") {
-        //std::cout << "EmptyLine\n";
-      } else {
-        throw std::runtime_error("Unparsed Input, Line: " + std::to_string(lineno));
       }
     } catch (const std::exception &e) {
       log(LogLevel::Error, lineno, line, e.what());
@@ -1294,6 +1290,9 @@ void run(std::istream &input) {
               // remove all unused labels that aren't 'main'
               return true;
             }
+          }
+          if (i.type == ASMLine::Type::Directive) {
+            return true;
           }
           return false;
         }
@@ -1337,6 +1336,8 @@ void run(std::istream &input) {
 
 
   std::vector<mos6502> new_instructions;
+  new_instructions.emplace_back(ASMLine::Type::Directive, ".word $1000");
+  new_instructions.emplace_back(ASMLine::Type::Directive, "* = $1000");
 
   bool skip_next_instruction = false;
   std::string next_label_name;
