@@ -1072,9 +1072,10 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
       instructions.emplace_back(mos6502::OpCode::bcs, Operand(Operand::Type::literal, new_label_name));
       instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
       return;
+    } else {
+      instructions.emplace_back(mos6502::OpCode::bcs, o1);
     }
 
-    throw std::runtime_error("Unable to handle unknown brsh offset");
   }
 
   case AVR::OpCode::breq: {
@@ -1563,6 +1564,14 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
       } else if (instructions[op].opcode == mos6502::OpCode::bcc) {
         const auto comment = instructions[op].comment;
         instructions[op] = mos6502(mos6502::OpCode::bcs, Operand(Operand::Type::literal, new_pos));
+        instructions.insert(std::next(std::begin(instructions), op + 1),
+          mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
+        instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
+        instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
+        return true;
+      } else if (instructions[op].opcode == mos6502::OpCode::bcs) {
+        const auto comment = instructions[op].comment;
+        instructions[op] = mos6502(mos6502::OpCode::bcc, Operand(Operand::Type::literal, new_pos));
         instructions.insert(std::next(std::begin(instructions), op + 1),
           mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
         instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));

@@ -34,19 +34,27 @@ inline void puts(uint8_t x, uint8_t y, std::string_view str) {
               str.size());
 }
 
-
-inline void put_hex(uint8_t x, uint8_t y, uint8_t value)
-{
-
-}
-
-inline void put_hex(uint8_t x, uint8_t y, uint16_t value)
-{
-}
-
 inline void putc(uint8_t x, uint8_t y, uint8_t c) {
   const auto start = 0x400 + (y * 40 + x);
   poke(start, c);
+}
+
+inline void put_hex(uint8_t x, uint8_t y, uint8_t value) {
+  const auto put_nibble = [](auto x, auto y, uint8_t nibble) {
+    if (nibble <= 9) {
+      putc(x, y, nibble + 48);
+    } else {
+      putc(x, y, nibble - 9);
+    }
+  };
+
+  put_nibble(x + 1, y, 0xF & value);
+  put_nibble(x, y, 0xF & (value >> 4));
+}
+
+inline void put_hex(uint8_t x, uint8_t y, uint16_t value) {
+  put_hex(x+2,y, static_cast<std::uint8_t>(0xFF & value));
+  put_hex(x,y, static_cast<std::uint8_t>(0xFF & (value >> 8)));
 }
 
 struct Clock {
@@ -83,29 +91,24 @@ int main() {
   /*
     puts(5, 5, "hello world");
     puts(10, 10, "hellooooo world");
+*/
+  Clock game_clock{};
+  
 
-    Clock game_clock{};
-  */
+  std::uint16_t counter = 0;
 
-  std::uint16_t us_elapsed = 0;
-
-  int y = 0;
+  std::uint8_t y = 15;
   while (true) {
-    //    const auto us_elapsed = game_clock.restart().count();
+    const auto us_elapsed = game_clock.restart().count();
 
-    for (int i = 0; i < 4; ++i) {
-      const auto nibble = static_cast<std::uint8_t>((us_elapsed >> (i * 4)) & 0xF);
-      if (nibble <= 9) {
-        putc(6 - i, y, nibble + 48);
-      } else {
-        putc(6 - i, y, nibble - 9);
-      }
+    put_hex(5, y, us_elapsed);
+    put_hex(11, y, counter);
+
+    if (y++ == 20) {
+      y = 15;
     }
 
-    if (y++ == 5) {
-      y = 0;
-    }
-    ++us_elapsed;
+    ++counter;
     increment_border_color();
   }
 
