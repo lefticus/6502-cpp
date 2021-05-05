@@ -44,23 +44,27 @@ std::string fixup_8bit_literal(const std::string &s)
   if (s[0] == '$')
   {
     return "#" + std::to_string(static_cast<uint8_t>(parse_8bit_literal(s)));
-  } else {
+  }
+
+  if (s.starts_with("0x")) {
+    return "#$" + s.substr(2);
+  }
+
     if (s.starts_with("lo8(") && s.ends_with(")")) {
       return "#<" + strip_lo_hi(s);
     }
     if (s.starts_with("hi8(") && s.ends_with(")")) {
       return "#>" + strip_lo_hi(s);
     }
-    // todo make this a generic number check
-    if (s == "0") {
-      return "#0";
-    }
-    if (s == "1") {
-      return "#1";
+
+    const auto is_num = std::all_of(begin(s), end(s), [](const auto c){ return (c >= '0' && c <= '9') || c == '-';});
+
+    if (is_num) {
+      return "#<" + s;
     }
 
     return s;
-  }
+
 }
 
 struct Operand
@@ -133,7 +137,9 @@ struct mos6502 : ASMLine
     clc,
     sec,
     bit,
-    jsr
+    jsr,
+    bcc,
+    bcs
   };
 
   static bool get_is_branch(const OpCode o) {
@@ -142,6 +148,8 @@ struct mos6502 : ASMLine
       case OpCode::bne:
       case OpCode::bmi:
       case OpCode::bpl:
+      case OpCode::bcc:
+      case OpCode::bcs:
         return true;
       case OpCode::lda:
       case OpCode::ldy:
@@ -304,7 +312,11 @@ struct mos6502 : ASMLine
         return "jsr";
       case OpCode::bpl:
         return "bpl";
-      case OpCode::unknown:
+      case OpCode::bcc:
+        return "bcc";
+      case OpCode::bcs:
+        return "bcs";
+        case OpCode::unknown:
         return "";
     };
 
@@ -540,7 +552,16 @@ struct AVR : ASMLine
     brne,
     rjmp,
     dec,
-    sbiw
+    sbiw,
+    push,
+    pop,
+    com,
+    swap,
+    clr,
+    cpse,
+    cpi,
+    brlo
+
   };
 
   static OpCode parse_opcode(Type t, const std::string &o)
@@ -574,6 +595,15 @@ struct AVR : ASMLine
           if (o == "brne") return OpCode::brne;
           if (o == "dec") return OpCode::dec;
           if (o == "sbiw") return OpCode::sbiw;
+          if (o == "push") return OpCode::push;
+          if (o == "pop") return OpCode::pop;
+          if (o == "com") return OpCode::com;
+          if (o == "swap") return OpCode::swap;
+          if (o == "clr") return OpCode::clr;
+          if (o == "cpse") return OpCode::cpse;
+          if (o == "cpi") return OpCode::cpi;
+          if (o == "brlo") return OpCode::brlo;
+
         }
     }
     throw std::runtime_error("Unknown opcode: " + o);
@@ -732,6 +762,8 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
   const auto translate_register_number = [](const Operand &reg) {
     if (reg.value == "__zero_reg__") {
       return 1;
+    } else if (reg.value == "__temp_reg__") {
+      return 0;
     } else {
       return reg.reg_num;
     }
@@ -849,6 +881,14 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
       instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1_reg_num));
       return;
     }
+    case AVR::OpCode::cpse: {
+      instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1_reg_num));
+      instructions.emplace_back(mos6502::OpCode::bit, AVR::get_register(o2_reg_num));
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
+      instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
+      return;
+    }
     case AVR::OpCode::sbrc: {
       instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (atoi(o2.value.c_str()))))));
       instructions.emplace_back(mos6502::OpCode::bit, AVR::get_register(o1_reg_num));
@@ -881,6 +921,60 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
 
     case AVR::OpCode::sbiw: {
       subtract_16_bit(instructions, o1_reg_num, atoi(o2.value.c_str()));
+      return;
+    }
+
+    case AVR::OpCode::push: {
+      instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1_reg_num));
+      instructions.emplace_back(mos6502::OpCode::pha);
+      return;
+    }
+    case AVR::OpCode::pop: {
+      instructions.emplace_back(mos6502::OpCode::pla);
+      instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1_reg_num));
+      return;
+    }
+    case AVR::OpCode::com: {
+      // We're doing this in the same way the AVR does it, to make sure the C flag is set properly
+      instructions.emplace_back(mos6502::OpCode::clc);
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#$FF"));
+      instructions.emplace_back(mos6502::OpCode::sbc, AVR::get_register(o1_reg_num));
+      instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1_reg_num));
+      return;
+    }
+    case AVR::OpCode::clr: {
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#$00"));
+      instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1_reg_num));
+      return;
+    }
+    case AVR::OpCode::cpi: {
+      instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1_reg_num));
+      instructions.emplace_back(mos6502::OpCode::sec);
+      instructions.emplace_back(mos6502::OpCode::sbc, Operand(o2.type, fixup_8bit_literal(o2.value)));
+      return;
+    }
+    case AVR::OpCode::brlo: {
+      instructions.emplace_back(mos6502::OpCode::bcc, o1);
+      return;
+    }
+    case AVR::OpCode::swap: {
+      // from http://www.6502.org/source/general/SWN.html
+      // ASL  A
+      // ADC  #$80
+      // ROL  A
+      // ASL  A
+      // ADC  #$80
+      // ROL  A
+
+      instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1_reg_num));
+      instructions.emplace_back(mos6502::OpCode::asl);
+      instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#$80"));
+      instructions.emplace_back(mos6502::OpCode::rol);
+      instructions.emplace_back(mos6502::OpCode::asl);
+      instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#$80"));
+      instructions.emplace_back(mos6502::OpCode::rol);
+      instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1_reg_num));
+
       return;
     }
   }
@@ -1287,7 +1381,8 @@ bool optimize(std::vector<mos6502> &instructions)
     {
       next_instruction(op);
       if (instructions[op].opcode == mos6502::OpCode::tay) {
-        instructions.erase(std::next(std::begin(instructions), op), std::next(std::begin(instructions), op+1));
+        instructions[op] = mos6502(ASMLine::Type::Directive,
+                                     "; removed redundant tay: " + instructions[op].to_string());
         return true;
       }
     }
@@ -1302,8 +1397,25 @@ bool optimize(std::vector<mos6502> &instructions)
       if (instructions[next].opcode == mos6502::OpCode::lda
           && instructions[next].op == instructions[op].op)
       {
-        instructions.erase(std::next(std::begin(instructions), next), std::next(std::begin(instructions), next+1));
+        instructions[next] = mos6502(ASMLine::Type::Directive,
+                                    "; removed redundant lda: " + instructions[next].to_string());
         return true;
+      }
+    }
+  }
+
+  for (size_t op = 0; op < instructions.size() - 1; ++op) {
+    if (instructions[op].opcode == mos6502::OpCode::ldy && instructions[op].op.type == Operand::Type::literal) {
+      auto op2 = op+1;
+
+      while (op2 < instructions.size() && (instructions[op2].type != ASMLine::Type::Label)) {
+        // while inside this label
+        if (instructions[op2].opcode == mos6502::OpCode::ldy && instructions[op2].op.value ==
+                                                                        instructions[op].op.value) {
+          instructions[op2] = mos6502(ASMLine::Type::Directive, "; removed redundant ldy: " + instructions[op2].to_string());
+          return true;
+        }
+        ++op2;
       }
     }
   }
@@ -1323,13 +1435,13 @@ bool optimize(std::vector<mos6502> &instructions)
       if (instructions[op2].opcode == mos6502::OpCode::lda
           && operand == instructions[op2].op)
       {
-        instructions.erase(std::next(std::begin(instructions), op2), std::next(std::begin(instructions), op2+1));
+        instructions[op2] = mos6502(ASMLine::Type::Directive,
+                                    "; removed redundant lda: " + instructions[op2].to_string());
         return true;
       }
 
     }
   }
-
 
   return false;
 }
@@ -1358,6 +1470,14 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
         instructions.insert(std::next(std::begin(instructions), op + 1), mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
         instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
         instructions[op].comment = instructions[op+1].comment = instructions[op+2].comment = comment;
+        return true;
+      } else if (instructions[op].opcode == mos6502::OpCode::bcc) {
+        const auto comment = instructions[op].comment;
+        instructions[op] = mos6502(mos6502::OpCode::bcs, Operand(Operand::Type::literal, new_pos));
+        instructions.insert(std::next(std::begin(instructions), op + 1),
+                            mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
+        instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
+        instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
         return true;
       } else {
         throw std::runtime_error("Don't know how to reorg this branch");
@@ -1514,7 +1634,11 @@ void run(std::istream &input) {
     if (i.type == ASMLine::Type::Label)
     {
       std::clog << "Looking up Label: '" << i.text << "'\n";
-      i.text = new_labels.at(i.text);
+      if (i.text == "0") {
+        i.text = "-memcpy_0";
+      }else {
+        i.text = new_labels.at(i.text);
+      }
     }
 
     if (i.operand2.value.starts_with("lo8(") || i.operand2.value.starts_with("hi8("))
