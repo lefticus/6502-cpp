@@ -107,6 +107,8 @@ struct mos6502 : ASMLine
     ldy,
     tay,
     tya,
+    tax,
+    txa,
     cpy,
     eor,
     sta,
@@ -152,6 +154,8 @@ struct mos6502 : ASMLine
     case OpCode::ldy:
     case OpCode::tay:
     case OpCode::tya:
+    case OpCode::tax:
+    case OpCode::txa:
     case OpCode::cpy:
     case OpCode::eor:
     case OpCode::sta:
@@ -194,6 +198,8 @@ struct mos6502 : ASMLine
     case OpCode::ldy:
     case OpCode::tay:
     case OpCode::tya:
+    case OpCode::tax:
+    case OpCode::txa:
     case OpCode::eor:
     case OpCode::sta:
     case OpCode::sty:
@@ -256,6 +262,10 @@ struct mos6502 : ASMLine
       return "tay";
     case OpCode::tya:
       return "tya";
+    case OpCode::tax:
+      return "tax";
+    case OpCode::txa:
+      return "txa";
     case OpCode::cpy:
       return "cpy";
     case OpCode::eor:
@@ -571,15 +581,18 @@ struct AVR : ASMLine
     clr,
     cpse,
     cpi,
-    brlo
-
+    brlo,
+    add,
+    adc,
+    cpc,
+    brsh,
+    breq
   };
 
   static OpCode parse_opcode(Type t, const std::string &o)
   {
     switch (t) {
     case Type::Label:
-      return OpCode::unknown;
     case Type::Directive:
       return OpCode::unknown;
     case Type::Instruction: {
@@ -612,6 +625,11 @@ struct AVR : ASMLine
       if (o == "cpse") return OpCode::cpse;
       if (o == "cpi") return OpCode::cpi;
       if (o == "brlo") return OpCode::brlo;
+      if (o == "add") return OpCode::add;
+      if (o == "adc") return OpCode::adc;
+      if (o == "cpc") return OpCode::cpc;
+      if (o == "brsh") return OpCode::brsh;
+      if (o == "breq") return OpCode::breq;
     }
     }
     throw std::runtime_error("Unknown opcode: " + o);
@@ -622,14 +640,14 @@ struct AVR : ASMLine
     if (reg_name == 'X') {
       return 26;
     }
-
     if (reg_name == 'Y') {
       return 28;
     }
-
     if (reg_name == 'Z') {
       return 30;
     }
+
+    throw std::runtime_error("Unknown register name");
   }
 
   static Operand get_register(const char reg_name, const int byte = 0)
@@ -763,7 +781,7 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   // if it's not 0, then branch down, we know the result is not 0 and not negative
   instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, set_flag_label));
   // if the higher order byte is 0, test the lower order byte, which was saved for us in Y
-  instructions.emplace_back(mos6502::OpCode::tya);
+  instructions.emplace_back(mos6502::OpCode::txa);
   // if low order is not negative, we know it's 0 or not 0
   instructions.emplace_back(mos6502::OpCode::bpl, Operand(Operand::Type::literal, set_flag_label));
   // if low order byte is negative, shift right by one bit, then we'll get the proper Z/N flags
@@ -782,7 +800,7 @@ void subtract_16_bit(std::vector<mos6502> &instructions, int reg, const std::uin
   instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(reg + 1));
   instructions.emplace_back(mos6502::OpCode::sbc, Operand(Operand::Type::literal, "#" + std::to_string((value >> 8) & 0xFF)));
   instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(reg + 1));
-  instructions.emplace_back(mos6502::OpCode::tay);
+  instructions.emplace_back(mos6502::OpCode::tax);
   fixup_16_bit_N_Z_flags(instructions);
 }
 
@@ -882,7 +900,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
     instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1_reg_num));
     // temporarily store lower order (not carried substraction) byte into Y for checking
     // later if this is a two byte subtraction operation
-    instructions.emplace_back(mos6502::OpCode::tay);
+    instructions.emplace_back(mos6502::OpCode::tax);
     return;
   }
   case AVR::OpCode::st: {
@@ -985,14 +1003,24 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
     return;
   }
   case AVR::OpCode::cpi: {
+    // note that this will leave the C flag in the 6502 borrow state, not normal carry state
     instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1_reg_num));
     instructions.emplace_back(mos6502::OpCode::sec);
     instructions.emplace_back(mos6502::OpCode::sbc, Operand(o2.type, fixup_8bit_literal(o2.value)));
     return;
   }
   case AVR::OpCode::brlo: {
-    instructions.emplace_back(mos6502::OpCode::bcc, o1);
-    return;
+
+    if (o1.value == ".+2") {
+      // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      instructions.emplace_back(mos6502::OpCode::bcc, Operand(Operand::Type::literal, new_label_name));
+      instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
+      return;
+    } else {
+      instructions.emplace_back(mos6502::OpCode::bcc, o1);
+      return;
+    }
   }
   case AVR::OpCode::swap: {
     // from http://www.6502.org/source/general/SWN.html
@@ -1014,6 +1042,46 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
 
     return;
   }
+  case AVR::OpCode::add: {
+    instructions.emplace_back(mos6502::OpCode::clc);
+    instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::adc, AVR::get_register(o2_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1_reg_num));
+    return;
+  }
+  case AVR::OpCode::adc: {
+    instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::adc, AVR::get_register(o2_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(o1_reg_num));
+    return;
+  }
+  case AVR::OpCode::cpc: {
+    // this instruction seems to need to be used in the case after a sbc operation, where the
+    // carry flag is set to the appropriate borrow state, so I'm going to not invert
+    // the carry flag here, and assume that it's set how the 6502 wants it to be
+    // set from the previous operation
+
+    instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sbc, AVR::get_register(o2_reg_num));
+    return;
+  }
+  case AVR::OpCode::brsh: {
+    if (o1.value == ".+2") {
+      // assumes 6502 'borrow' for Carry flag instead of carry, so bcs instead of bcc
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      instructions.emplace_back(mos6502::OpCode::bcs, Operand(Operand::Type::literal, new_label_name));
+      instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
+      return;
+    }
+
+    throw std::runtime_error("Unable to handle unknown brsh offset");
+  }
+
+  case AVR::OpCode::breq: {
+    instructions.emplace_back(mos6502::OpCode::beq, o1);
+    return;
+  }
+
   }
 
   throw std::runtime_error("Could not translate unhandled instruction");
@@ -1485,6 +1553,13 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
         instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
         instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
         return true;
+      } else if (instructions[op].opcode == mos6502::OpCode::beq) {
+        const auto comment = instructions[op].comment;
+        instructions[op] = mos6502(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_pos));
+        instructions.insert(std::next(std::begin(instructions), op + 1), mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
+        instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
+        instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
+        return true;
       } else if (instructions[op].opcode == mos6502::OpCode::bcc) {
         const auto comment = instructions[op].comment;
         instructions[op] = mos6502(mos6502::OpCode::bcs, Operand(Operand::Type::literal, new_pos));
@@ -1494,7 +1569,7 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
         instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
         return true;
       } else {
-        throw std::runtime_error("Don't know how to reorg this branch");
+        throw std::runtime_error("Don't know how to reorg this branch: " + instructions[op].to_string());
       }
     }
   }
@@ -1673,7 +1748,7 @@ void run(std::istream &input)
   new_instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, "main"));
 
 
-  bool skip_next_instruction = false;
+  int instructions_to_skip = 0;
   std::string next_label_name;
   for (const auto &i : instructions) {
     to_mos6502(i, new_instructions);
@@ -1682,13 +1757,19 @@ void run(std::istream &input)
     const auto last_instruction = new_instructions.back();
     const auto last_instruction_loc = new_instructions.size() - 1;
 
-    if (skip_next_instruction) {
+    if (instructions_to_skip == 1) {
       new_instructions.emplace_back(ASMLine::Type::Label, next_label_name);
-      skip_next_instruction = false;
     }
 
+    --instructions_to_skip;
+
     if (last_instruction.type == ASMLine::Type::Directive && last_instruction.text.starts_with("skip_next_instruction")) {
-      skip_next_instruction = true;
+      instructions_to_skip = 1;
+      next_label_name = last_instruction.text;
+      new_instructions.erase(std::next(new_instructions.begin(), static_cast<std::ptrdiff_t>(last_instruction_loc)));
+    }
+    if (last_instruction.type == ASMLine::Type::Directive && last_instruction.text.starts_with("skip_next_2_instructions")) {
+      instructions_to_skip = 2;
       next_label_name = last_instruction.text;
       new_instructions.erase(std::next(new_instructions.begin(), static_cast<std::ptrdiff_t>(last_instruction_loc)));
     }
