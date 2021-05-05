@@ -1005,8 +1005,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
   case AVR::OpCode::cpi: {
     // note that this will leave the C flag in the 6502 borrow state, not normal carry state
     instructions.emplace_back(mos6502::OpCode::lda, AVR::get_register(o1_reg_num));
-    instructions.emplace_back(mos6502::OpCode::sec);
-    instructions.emplace_back(mos6502::OpCode::sbc, Operand(o2.type, fixup_8bit_literal(o2.value)));
+    instructions.emplace_back(mos6502::OpCode::cmp, Operand(o2.type, fixup_8bit_literal(o2.value)));
     return;
   }
   case AVR::OpCode::brlo: {
@@ -1074,6 +1073,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
       return;
     } else {
       instructions.emplace_back(mos6502::OpCode::bcs, o1);
+      return;
     }
 
   }
