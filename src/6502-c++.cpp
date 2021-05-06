@@ -1200,13 +1200,6 @@ bool fix_overwritten_flags(std::vector<mos6502> &instructions)
   return false;
 }
 
-void setup_target_cpu_state([[maybe_unused]] const std::vector<AVR> &instructions, std::vector<mos6502> &new_instructions)
-{
-  // set __zero_reg__ (reg 1 on AVR) to 0
-  new_instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#$00"));
-  new_instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(1));
-}
-
 void run(std::istream &input)
 {
   std::regex Comment(R"(\s*\#.*)");
@@ -1320,11 +1313,16 @@ void run(std::istream &input)
     }
   }
 
+  constexpr static auto start_address = 0x0801;
 
   std::vector<mos6502> new_instructions;
-  new_instructions.emplace_back(ASMLine::Type::Directive, ".word $1000");
-  new_instructions.emplace_back(ASMLine::Type::Directive, "* = $1000");
-  setup_target_cpu_state(instructions, new_instructions);
+  new_instructions.emplace_back(ASMLine::Type::Directive, ".word " + std::to_string(start_address));
+  new_instructions.emplace_back(ASMLine::Type::Directive, "* = " + std::to_string(start_address));
+  new_instructions.emplace_back(ASMLine::Type::Directive, "; jmp to start of program with BASIC");
+  new_instructions.emplace_back(ASMLine::Type::Directive, ".byt $0B,$08,$0A,$00,$9E,$32,$30,$36,$31,$00,$00,$00");
+  // set __zero_reg__ (reg 1 on AVR) to 0
+  new_instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#$00"));
+  new_instructions.emplace_back(mos6502::OpCode::sta, AVR::get_register(1));
   new_instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, "main"));
 
 
