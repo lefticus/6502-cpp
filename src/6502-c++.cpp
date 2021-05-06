@@ -218,6 +218,9 @@ struct mos6502 : ASMLine
     case OpCode::bne:
     case OpCode::bmi:
     case OpCode::beq:
+    case OpCode::bpl:
+    case OpCode::bcs:
+    case OpCode::bcc:
     case OpCode::adc:
     case OpCode::sbc:
     case OpCode::rts:
@@ -976,7 +979,7 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
   }
 
   case AVR::OpCode::sbiw: {
-    subtract_16_bit(instructions, o1_reg_num, atoi(o2.value.c_str()));
+    subtract_16_bit(instructions, o1_reg_num, static_cast<std::uint16_t>(std::stoi(o2.value)));
     return;
   }
 
@@ -1082,6 +1085,9 @@ void translate_instruction(std::vector<mos6502> &instructions, const AVR::OpCode
   case AVR::OpCode::breq: {
     instructions.emplace_back(mos6502::OpCode::beq, o1);
     return;
+  }
+  case AVR::OpCode::unknown: {
+    throw std::runtime_error("Could not translate 'unknown' instruction");
   }
 
   }
@@ -1397,26 +1403,26 @@ void log(LogLevel ll, const int line_no, const std::string &line, const std::str
 }
 
 template<typename FromArch>
-void to_mos6502(const FromArch &i, std::vector<mos6502> &instructions)
+void to_mos6502(const FromArch &from_instruction, std::vector<mos6502> &instructions)
 {
   try {
-    switch (i.type) {
+    switch (from_instruction.type) {
     case ASMLine::Type::Label:
-      if (i.text == "0") {
-        instructions.emplace_back(i.type, "-memcpy_0");
+      if (from_instruction.text == "0") {
+        instructions.emplace_back(from_instruction.type, "-memcpy_0");
       } else {
-        instructions.emplace_back(i.type, i.text);
+        instructions.emplace_back(from_instruction.type, from_instruction.text);
       }
       return;
     case ASMLine::Type::Directive:
-      if (i.text.starts_with(".string")) {
-        instructions.emplace_back(ASMLine::Type::Directive, ".asc " + i.text.substr(7));
-      } else if (i.text.starts_with(".zero")) {
-        const auto count = atoi(i.text.data() + 6);
+      if (from_instruction.text.starts_with(".string")) {
+        instructions.emplace_back(ASMLine::Type::Directive, ".asc " + from_instruction.text.substr(7));
+      } else if (from_instruction.text.starts_with(".zero")) {
+        const auto count = std::stoull(&*std::next(from_instruction.text.begin(), 6), nullptr, 10);
 
         std::string zeros;
-        for (int i = 0; i < count; ++i) {
-          if ((i % 20) == 0) {
+        for (std::size_t i = 0; i < count; ++i) {
+          if ((i % 40) == 0) {
             if (!zeros.empty()) {
               instructions.emplace_back(ASMLine::Type::Directive, zeros);
               zeros.clear();
@@ -1432,30 +1438,30 @@ void to_mos6502(const FromArch &i, std::vector<mos6502> &instructions)
         }
 
       } else {
-        instructions.emplace_back(ASMLine::Type::Directive, "; Unknown directive: " + i.text);
+        instructions.emplace_back(ASMLine::Type::Directive, "; Unknown directive: " + from_instruction.text);
       }
       return;
     case ASMLine::Type::Instruction:
       const auto head = instructions.size();
 
       try {
-        translate_instruction(instructions, i.opcode, i.operand1, i.operand2);
+        translate_instruction(instructions, from_instruction.opcode, from_instruction.operand1, from_instruction.operand2);
       } catch (const std::exception &e) {
-        instructions.emplace_back(ASMLine::Type::Directive, "; Unhandled opcode: '" + i.text + "' " + e.what());
-        log(LogLevel::Error, i, e.what());
+        instructions.emplace_back(ASMLine::Type::Directive, "; Unhandled opcode: '" + from_instruction.text + "' " + e.what());
+        log(LogLevel::Error, from_instruction, e.what());
       }
 
-      auto text = i.line_text;
+      auto text = from_instruction.line_text;
       if (text[0] == '\t') {
         text.erase(0, 1);
       }
-      for_each(std::next(instructions.begin(), head), instructions.end(), [text](auto &ins) {
+      for_each(std::next(instructions.begin(), static_cast<std::ptrdiff_t>(head)), instructions.end(), [text](auto &ins) {
         ins.comment = text;
       });
       return;
     }
   } catch (const std::exception &e) {
-    log(LogLevel::Error, i, e.what());
+    log(LogLevel::Error, from_instruction, e.what());
   }
 }
 
@@ -1513,6 +1519,10 @@ bool optimize(std::vector<mos6502> &instructions)
       for (size_t next_op = op + 1; next_op < instructions.size(); ++next_op) {
         if (instructions[next_op].opcode != mos6502::OpCode::sta && instructions[next_op].op.value == instructions[op].op.value) {
           // we just found a use of ourselves back, abort the search, there's probably something else going on
+          break;
+        }
+        if (instructions[next_op].opcode == mos6502::OpCode::lda && instructions[next_op].op.value != instructions[op].op.value) {
+          // someone just loaded lda with a different value, so we need to abort!
           break;
         }
 
@@ -1609,39 +1619,26 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
       const auto going_to = instructions[op].op.value;
       const auto new_pos = "patch_" + std::to_string(branch_patch_count);
       // uh-oh too long of a branch, have to convert this to a jump...
-      if (instructions[op].opcode == mos6502::OpCode::bne) {
+
+      std::map<mos6502::OpCode, mos6502::OpCode> branch_mapping;
+
+      branch_mapping[mos6502::OpCode::bne] = mos6502::OpCode::beq;
+      branch_mapping[mos6502::OpCode::beq] = mos6502::OpCode::bne;
+      branch_mapping[mos6502::OpCode::bcc] = mos6502::OpCode::bcs;
+      branch_mapping[mos6502::OpCode::bcs] = mos6502::OpCode::bcc;
+
+      const auto mapping = branch_mapping.find(instructions[op].opcode);
+
+      if (mapping != branch_mapping.end()) {
         const auto comment = instructions[op].comment;
-        instructions[op] = mos6502(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_pos));
-        instructions.insert(std::next(std::begin(instructions), op + 1), mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
-        instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
+        instructions[op] = mos6502(mapping->second, Operand(Operand::Type::literal, new_pos));
+        instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op + 1)), mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
+        instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op + 2)), mos6502(ASMLine::Type::Label, new_pos));
         instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
         return true;
-      } else if (instructions[op].opcode == mos6502::OpCode::beq) {
-        const auto comment = instructions[op].comment;
-        instructions[op] = mos6502(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_pos));
-        instructions.insert(std::next(std::begin(instructions), op + 1), mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
-        instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
-        instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
-        return true;
-      } else if (instructions[op].opcode == mos6502::OpCode::bcc) {
-        const auto comment = instructions[op].comment;
-        instructions[op] = mos6502(mos6502::OpCode::bcs, Operand(Operand::Type::literal, new_pos));
-        instructions.insert(std::next(std::begin(instructions), op + 1),
-          mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
-        instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
-        instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
-        return true;
-      } else if (instructions[op].opcode == mos6502::OpCode::bcs) {
-        const auto comment = instructions[op].comment;
-        instructions[op] = mos6502(mos6502::OpCode::bcc, Operand(Operand::Type::literal, new_pos));
-        instructions.insert(std::next(std::begin(instructions), op + 1),
-          mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
-        instructions.insert(std::next(std::begin(instructions), op + 2), mos6502(ASMLine::Type::Label, new_pos));
-        instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
-        return true;
-      } else {
-        throw std::runtime_error("Don't know how to reorg this branch: " + instructions[op].to_string());
       }
+
+      throw std::runtime_error("Don't know how to reorg this branch: " + instructions[op].to_string());
     }
   }
   return false;
@@ -1672,9 +1669,9 @@ bool fix_overwritten_flags(std::vector<mos6502> &instructions)
 
         if (instructions[op2].is_branch) {
           // insert a pull of processor status before the branch
-          instructions.insert(std::next(std::begin(instructions), op2), mos6502(mos6502::OpCode::plp));
+          instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op2)), mos6502(mos6502::OpCode::plp));
           // insert a push of processor status after the comparison
-          instructions.insert(std::next(std::begin(instructions), op + 1), mos6502(mos6502::OpCode::php));
+          instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op + 1)), mos6502(mos6502::OpCode::php));
 
           return true;
         }
@@ -1860,7 +1857,7 @@ void run(std::istream &input)
   }
 
 
-  for (const auto i : new_instructions) {
+  for (const auto &i : new_instructions) {
     std::cout << i.to_string() << '\n';
   }
 }
@@ -1878,16 +1875,16 @@ int main([[maybe_unused]] const int argc, const char *argv[])
     }
   }();
 
-  const bool is_avr = [&]() {
+  const bool is_386 = [&]() {
     for (std::size_t index = 0; index < static_cast<std::size_t>(argc); ++index) {
-      if (strstr(argv[index], "avr") != nullptr) {
+      if (strstr(argv[index], "x86") != nullptr) {
         return true;
       }
     }
     return false;
   }();
 
-  if (is_avr) {
+  if (!is_386) {
     std::cout << "; AVR Mode\n";
     run<AVR>(input);
   } else {
