@@ -1,12 +1,13 @@
-#include <iostream>
-#include <vector>
-#include <set>
-#include <string>
-#include <regex>
 #include <cassert>
-#include <map>
 #include <cctype>
 #include <fstream>
+#include <iostream>
+#include <map>
+#include <regex>
+#include <set>
+#include <string>
+#include <vector>
+#include <fmt/format.h>
 
 struct ASMLine
 {
@@ -18,7 +19,7 @@ struct ASMLine
 
   ASMLine(Type t, std::string te) : type(t), text(std::move(te)) {}
 
-  Type type;
+  Type        type;
   std::string text;
 };
 
@@ -72,8 +73,8 @@ struct Operand
     reg /*ister*/
   };
 
-  Type type = Type::empty;
-  int reg_num = 0;
+  Type        type    = Type::empty;
+  int         reg_num = 0;
   std::string value;
 
   Operand() = default;
@@ -101,43 +102,56 @@ struct mos6502 : ASMLine
 {
   enum class OpCode {
     unknown,
-    lda,
+
+    adc,
+    AND,
     asl,
-    rol,
-    ldy,
-    tay,
-    tya,
-    tax,
-    txa,
+
+    bcc,
+    bcs,
+    beq,
+    bit,
+    bmi,
+    bne,
+    bpl,
+
     cpy,
+    cmp,
+    clc,
+
+    dec,
+
     eor,
+
+    inc,
+
+    jmp,
+    jsr,
+
+    lda,
+    ldy,
+    lsr,
+
+    ORA,
+
+    pha,
+    php,
+    pla,
+    plp,
+
+    rol,
+    ror,
+    rts,
+
+    sbc,
+    sec,
     sta,
     sty,
-    pha,
-    pla,
-    php,
-    plp,
-    lsr,
-    ror,
-    AND,
-    inc,
-    dec,
-    ORA,
-    cmp,
-    bne,
-    beq,
-    bmi,
-    bpl,
-    jmp,
-    adc,
-    sbc,
-    rts,
-    clc,
-    sec,
-    bit,
-    jsr,
-    bcc,
-    bcs
+
+    tax,
+    tay,
+    txa,
+    tya,
   };
 
   static bool get_is_branch(const OpCode o)
@@ -150,37 +164,38 @@ struct mos6502 : ASMLine
     case OpCode::bcc:
     case OpCode::bcs:
       return true;
-    case OpCode::lda:
-    case OpCode::ldy:
-    case OpCode::tay:
-    case OpCode::tya:
-    case OpCode::tax:
-    case OpCode::txa:
-    case OpCode::cpy:
-    case OpCode::eor:
-    case OpCode::sta:
-    case OpCode::sty:
-    case OpCode::pha:
-    case OpCode::pla:
-    case OpCode::php:
-    case OpCode::plp:
-    case OpCode::lsr:
-    case OpCode::ror:
+    case OpCode::adc:
     case OpCode::AND:
-    case OpCode::inc:
-    case OpCode::dec:
-    case OpCode::ORA:
+    case OpCode::asl:
+    case OpCode::bit:
+    case OpCode::cpy:
     case OpCode::cmp:
+    case OpCode::clc:
+    case OpCode::dec:
+    case OpCode::eor:
+    case OpCode::inc:
     case OpCode::jmp:
     case OpCode::jsr:
-    case OpCode::adc:
-    case OpCode::sbc:
-    case OpCode::rts:
-    case OpCode::clc:
-    case OpCode::sec:
-    case OpCode::bit:
-    case OpCode::asl:
+    case OpCode::lda:
+    case OpCode::ldy:
+    case OpCode::lsr:
+    case OpCode::ORA:
+    case OpCode::pha:
+    case OpCode::php:
+    case OpCode::pla:
+    case OpCode::plp:
     case OpCode::rol:
+    case OpCode::ror:
+    case OpCode::rts:
+    case OpCode::sbc:
+    case OpCode::sec:
+    case OpCode::sta:
+    case OpCode::sty:
+    case OpCode::tax:
+    case OpCode::tay:
+    case OpCode::txa:
+    case OpCode::tya:
+
     case OpCode::unknown:
       break;
     }
@@ -190,44 +205,44 @@ struct mos6502 : ASMLine
   static bool get_is_comparison(const OpCode o)
   {
     switch (o) {
+    case OpCode::bit:
     case OpCode::cmp:
     case OpCode::cpy:
-    case OpCode::bit:
       return true;
-    case OpCode::lda:
-    case OpCode::ldy:
-    case OpCode::tay:
-    case OpCode::tya:
-    case OpCode::tax:
-    case OpCode::txa:
-    case OpCode::eor:
-    case OpCode::sta:
-    case OpCode::sty:
-    case OpCode::pha:
-    case OpCode::pla:
-    case OpCode::php:
-    case OpCode::plp:
-    case OpCode::lsr:
-    case OpCode::ror:
+    case OpCode::adc:
     case OpCode::AND:
-    case OpCode::inc:
-    case OpCode::dec:
-    case OpCode::ORA:
-    case OpCode::jmp:
-    case OpCode::jsr:
+    case OpCode::asl:
+    case OpCode::beq:
     case OpCode::bne:
     case OpCode::bmi:
-    case OpCode::beq:
     case OpCode::bpl:
-    case OpCode::bcs:
     case OpCode::bcc:
-    case OpCode::adc:
-    case OpCode::sbc:
-    case OpCode::rts:
+    case OpCode::bcs:
     case OpCode::clc:
-    case OpCode::sec:
+    case OpCode::dec:
+    case OpCode::eor:
+    case OpCode::inc:
+    case OpCode::jmp:
+    case OpCode::jsr:
+    case OpCode::lda:
+    case OpCode::ldy:
+    case OpCode::lsr:
+    case OpCode::ORA:
+    case OpCode::pha:
+    case OpCode::php:
+    case OpCode::pla:
+    case OpCode::plp:
     case OpCode::rol:
-    case OpCode::asl:
+    case OpCode::ror:
+    case OpCode::rts:
+    case OpCode::sbc:
+    case OpCode::sec:
+    case OpCode::sta:
+    case OpCode::sty:
+    case OpCode::tax:
+    case OpCode::tay:
+    case OpCode::txa:
+    case OpCode::tya:
     case OpCode::unknown:
       break;
     }
@@ -236,7 +251,7 @@ struct mos6502 : ASMLine
 
 
   explicit mos6502(const OpCode o)
-    : ASMLine(Type::Instruction, to_string(o)), opcode(o), is_branch(get_is_branch(o)), is_comparison(get_is_comparison(o))
+    : ASMLine(Type::Instruction, std::string{ to_string(o) }), opcode(o), is_branch(get_is_branch(o)), is_comparison(get_is_comparison(o))
   {
   }
 
@@ -246,11 +261,11 @@ struct mos6502 : ASMLine
   }
 
   mos6502(const OpCode o, Operand t_o)
-    : ASMLine(Type::Instruction, to_string(o)), opcode(o), op(std::move(t_o)), is_branch(get_is_branch(o)), is_comparison(get_is_comparison(o))
+    : ASMLine(Type::Instruction, std::string{ to_string(o) }), opcode(o), op(std::move(t_o)), is_branch(get_is_branch(o)), is_comparison(get_is_comparison(o))
   {
   }
 
-  static std::string to_string(const OpCode o)
+  constexpr static std::string_view to_string(const OpCode o)
   {
     switch (o) {
     case OpCode::lda:
@@ -329,12 +344,12 @@ struct mos6502 : ASMLine
       return "bcs";
     case OpCode::unknown:
       return "";
-    };
+    }
 
     return "";
   }
 
-  std::string to_string() const
+  [[nodiscard]] std::string to_string() const
   {
     switch (type) {
     case ASMLine::Type::Label:
@@ -349,11 +364,11 @@ struct mos6502 : ASMLine
   }
 
 
-  OpCode opcode = OpCode::unknown;
-  Operand op;
+  OpCode      opcode = OpCode::unknown;
+  Operand     op;
   std::string comment;
-  bool is_branch = false;
-  bool is_comparison = false;
+  bool        is_branch     = false;
+  bool        is_comparison = false;
 };
 
 
@@ -361,86 +376,95 @@ struct AVR : ASMLine
 {
   enum class OpCode {
     unknown,
-    ldi,
-    sts,
-    ret,
-    mov,
-    lsl,
-    rol,
-    rcall,
-    ld,
-    subi,
-    sbci,
-    st,
-    lds,
-    lsr,
+
+    adc,
+    add,
     andi,
+
+    breq,
+    brlo,
+    brne,
+    brsh,
+
+    clr,
+    com,
+    cpc,
+    cpi,
+    cpse,
+    dec,
+
     eor,
+
+    ld,
+    ldi,
+    lds,
+    lsl,
+    lsr,
+
+    mov,
+
+    pop,
+    push,
+
+    rcall,
+    ret,
+    rjmp,
+    rol,
+
+    sbci,
+    sbiw,
     sbrc,
     sbrs,
-    brne,
-    rjmp,
-    dec,
-    sbiw,
-    push,
-    pop,
-    com,
+    st,
+    sts,
+    subi,
     swap,
-    clr,
-    cpse,
-    cpi,
-    brlo,
-    add,
-    adc,
-    cpc,
-    brsh,
-    breq
   };
 
-  static OpCode parse_opcode(Type t, const std::string &o)
+  [[nodiscard]] static constexpr OpCode parse_opcode(Type t, std::string_view o)
   {
     switch (t) {
     case Type::Label:
     case Type::Directive:
       return OpCode::unknown;
     case Type::Instruction: {
-      if (o == "ldi") return OpCode::ldi;
-      if (o == "sts") return OpCode::sts;
-      if (o == "ret") return OpCode::ret;
-      if (o == "mov") return OpCode::mov;
-      if (o == "lsl") return OpCode::lsl;
-      if (o == "rol") return OpCode::rol;
-      if (o == "rcall") return OpCode::rcall;
-      if (o == "ld") return OpCode::ld;
-      if (o == "subi") return OpCode::subi;
-      if (o == "sbci") return OpCode::sbci;
-      if (o == "st") return OpCode::st;
-      if (o == "lds") return OpCode::lds;
-      if (o == "lsr") return OpCode::lsr;
-      if (o == "andi") return OpCode::andi;
-      if (o == "eor") return OpCode::eor;
-      if (o == "sbrc") return OpCode::sbrc;
-      if (o == "rjmp") return OpCode::rjmp;
-      if (o == "sbrs") return OpCode::sbrs;
-      if (o == "brne") return OpCode::brne;
-      if (o == "dec") return OpCode::dec;
-      if (o == "sbiw") return OpCode::sbiw;
-      if (o == "push") return OpCode::push;
-      if (o == "pop") return OpCode::pop;
-      if (o == "com") return OpCode::com;
-      if (o == "swap") return OpCode::swap;
-      if (o == "clr") return OpCode::clr;
-      if (o == "cpse") return OpCode::cpse;
-      if (o == "cpi") return OpCode::cpi;
-      if (o == "brlo") return OpCode::brlo;
-      if (o == "add") return OpCode::add;
-      if (o == "adc") return OpCode::adc;
-      if (o == "cpc") return OpCode::cpc;
-      if (o == "brsh") return OpCode::brsh;
-      if (o == "breq") return OpCode::breq;
+      if (o == "ldi") { return OpCode::ldi; }
+      if (o == "sts") { return OpCode::sts; }
+      if (o == "ret") { return OpCode::ret; }
+      if (o == "mov") { return OpCode::mov; }
+      if (o == "lsl") { return OpCode::lsl; }
+      if (o == "rol") { return OpCode::rol;}
+      if (o == "rcall") { return OpCode::rcall;}
+      if (o == "ld") { return OpCode::ld;}
+      if (o == "subi") { return OpCode::subi;}
+      if (o == "sbci") { return OpCode::sbci;}
+      if (o == "st") { return OpCode::st;}
+      if (o == "lds") { return OpCode::lds;}
+      if (o == "lsr") { return OpCode::lsr;}
+      if (o == "andi") { return OpCode::andi;}
+      if (o == "eor") { return OpCode::eor;}
+      if (o == "sbrc") { return OpCode::sbrc;}
+      if (o == "rjmp") { return OpCode::rjmp;}
+      if (o == "sbrs") { return OpCode::sbrs;}
+      if (o == "brne") { return OpCode::brne;}
+      if (o == "dec") { return OpCode::dec;}
+      if (o == "sbiw") { return OpCode::sbiw;}
+      if (o == "push") { return OpCode::push;}
+      if (o == "pop") { return OpCode::pop;}
+      if (o == "com") { return OpCode::com;}
+      if (o == "swap") { return OpCode::swap;}
+      if (o == "clr") { return OpCode::clr;}
+      if (o == "cpse") { return OpCode::cpse;}
+      if (o == "cpi") { return OpCode::cpi;}
+      if (o == "brlo") { return OpCode::brlo;}
+      if (o == "add") { return OpCode::add;}
+      if (o == "adc") { return OpCode::adc;}
+      if (o == "cpc") { return OpCode::cpc;}
+      if (o == "brsh") { return OpCode::brsh;}
+      if (o == "breq") { return OpCode::breq;}
     }
     }
-    throw std::runtime_error("Unknown opcode: " + o);
+    throw std::runtime_error(fmt::format("Unknown opcode: {}"));
   }
 
   static int get_register_number(const char reg_name)
@@ -536,7 +560,7 @@ struct AVR : ASMLine
   }
 
 
-  static Operand parse_operand(std::string o)
+  static Operand parse_operand(std::string_view o)
   {
     if (o.empty()) {
       return Operand();
@@ -545,21 +569,21 @@ struct AVR : ASMLine
     if (o[0] == 'r' && o.size() > 1) {
       return Operand(Operand::Type::reg, atoi(&o[1]));
     } else {
-      return Operand(Operand::Type::literal, std::move(o));
+      return Operand(Operand::Type::literal, std::string{ o });
     }
   }
 
-  AVR(const int t_line_num, std::string t_line_text, Type t, std::string t_opcode, std::string o1 = "", std::string o2 = "")
-    : ASMLine(t, t_opcode), line_num(t_line_num), line_text(std::move(t_line_text)),
+  AVR(const int t_line_num, std::string_view t_line_text, Type t, std::string_view t_opcode, std::string_view o1 = "", std::string_view o2 = "")
+    : ASMLine(t, std::string(t_opcode)), line_num(t_line_num), line_text(std::string(t_line_text)),
       opcode(parse_opcode(t, t_opcode)), operand1(parse_operand(o1)), operand2(parse_operand(o2))
   {
   }
 
-  int line_num;
+  int         line_num;
   std::string line_text;
-  OpCode opcode;
-  Operand operand1;
-  Operand operand2;
+  OpCode      opcode;
+  Operand     operand1;
+  Operand     operand2;
 };
 
 void indirect_load(std::vector<mos6502> &instructions, const std::string &from_address_low_byte, const std::string &to_address)
@@ -920,7 +944,7 @@ void log(LogLevel ll, const AVR &i, const std::string &message)
   std::cerr << to_string(ll) << ": " << i.line_num << ": " << message << ": `" << i.line_text << "`\n";
 }
 
-void log(LogLevel ll, const int line_no, const std::string &line, const std::string &message)
+void log(LogLevel ll, const std::size_t line_no, const std::string &line, const std::string &message)
 {
   std::cerr << to_string(ll) << ": " << line_no << ": " << message << ": `" << line << "`\n";
 }
@@ -1105,7 +1129,7 @@ bool optimize(std::vector<mos6502> &instructions)
     if (instructions[op].opcode == mos6502::OpCode::lda
         && instructions[op].op.type == Operand::Type::literal) {
       const auto operand = instructions[op].op;
-      auto op2 = op + 1;
+      auto       op2     = op + 1;
       // look for multiple stores of the same value
       while (op2 < instructions.size() && (instructions[op2].opcode == mos6502::OpCode::sta || instructions[op2].type == ASMLine::Type::Directive)) {
         ++op2;
@@ -1135,7 +1159,7 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
     if (instructions[op].is_branch && std::abs(static_cast<int>(labels[instructions[op].op.value]) - static_cast<int>(op)) * 3 > 255) {
       ++branch_patch_count;
       const auto going_to = instructions[op].op.value;
-      const auto new_pos = "patch_" + std::to_string(branch_patch_count);
+      const auto new_pos  = "patch_" + std::to_string(branch_patch_count);
       // uh-oh too long of a branch, have to convert this to a jump...
 
       std::map<mos6502::OpCode, mos6502::OpCode> branch_mapping;
@@ -1149,7 +1173,7 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
 
       if (mapping != branch_mapping.end()) {
         const auto comment = instructions[op].comment;
-        instructions[op] = mos6502(mapping->second, Operand(Operand::Type::literal, new_pos));
+        instructions[op]   = mos6502(mapping->second, Operand(Operand::Type::literal, new_pos));
         instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op + 1)), mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
         instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op + 2)), mos6502(ASMLine::Type::Label, new_pos));
         instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
@@ -1209,7 +1233,7 @@ void run(std::istream &input)
   std::regex BinaryInstruction(R"(^\s+(\S+)\s+(\S+),\s*(\S+))");
   std::regex Instruction(R"(^\s+(\S+))");
 
-  int lineno = 0;
+  std::size_t lineno = 0;
 
 
   std::vector<AVR> instructions;
@@ -1220,18 +1244,19 @@ void run(std::istream &input)
     try {
       std::smatch match;
       if (std::regex_match(line, match, Label)) {
-        instructions.emplace_back(lineno, line, ASMLine::Type::Label, match[1]);
+        instructions.emplace_back(lineno, line, ASMLine::Type::Label, match[1].str());
       } else if (std::regex_match(line, match, Comment)) {
         // don't care about comments
       } else if (std::regex_match(line, match, Directive)) {
-        instructions.emplace_back(lineno, line, ASMLine::Type::Directive, match[1]);
+        instructions.emplace_back(lineno, line, ASMLine::Type::Directive, match[1].str());
       } else if (std::regex_match(line, match, BinaryInstruction)) {
-        instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1], match[2], match[3]);
+        instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1].str(), match[2].str(), match[3].str());
       } else if (std::regex_match(line, match, UnaryInstruction)) {
-        instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1], match[2]);
+        instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1].str(), match[2].str());
       } else if (std::regex_match(line, match, Instruction)) {
-        instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1]);
-      } else if (line == "") {
+        instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1].str());
+      } else if (line.empty()) {
+        // skip empty lines
       }
     } catch (const std::exception &e) {
       log(LogLevel::Error, lineno, line, e.what());
@@ -1296,7 +1321,7 @@ void run(std::istream &input)
 
     if (i.operand2.value.starts_with("lo8(") || i.operand2.value.starts_with("hi8(")) {
       const auto potential_label = strip_lo_hi(i.operand2.value);
-      const auto itr1 = new_labels.find(potential_label);
+      const auto itr1            = new_labels.find(potential_label);
       if (itr1 != new_labels.end()) {
         i.operand2.value.replace(4, potential_label.size(), itr1->second);
       }
@@ -1326,13 +1351,13 @@ void run(std::istream &input)
   new_instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, "main"));
 
 
-  int instructions_to_skip = 0;
+  int         instructions_to_skip = 0;
   std::string next_label_name;
   for (const auto &i : instructions) {
     to_mos6502(i, new_instructions);
 
     // intentionally copy so we don't invalidate the reference
-    const auto last_instruction = new_instructions.back();
+    const auto last_instruction     = new_instructions.back();
     const auto last_instruction_loc = new_instructions.size() - 1;
 
     if (instructions_to_skip == 1) {
@@ -1343,12 +1368,12 @@ void run(std::istream &input)
 
     if (last_instruction.type == ASMLine::Type::Directive && last_instruction.text.starts_with("skip_next_instruction")) {
       instructions_to_skip = 1;
-      next_label_name = last_instruction.text;
+      next_label_name      = last_instruction.text;
       new_instructions.erase(std::next(new_instructions.begin(), static_cast<std::ptrdiff_t>(last_instruction_loc)));
     }
     if (last_instruction.type == ASMLine::Type::Directive && last_instruction.text.starts_with("skip_next_2_instructions")) {
       instructions_to_skip = 2;
-      next_label_name = last_instruction.text;
+      next_label_name      = last_instruction.text;
       new_instructions.erase(std::next(new_instructions.begin(), static_cast<std::ptrdiff_t>(last_instruction_loc)));
     }
   }
