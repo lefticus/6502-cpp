@@ -773,7 +773,7 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
 
   // need to get both Z and N set appropriately
   // assuming A contains higher order byte and Y contains lower order byte
-  // todo, abstract this out so it can be used after any 16 bit op
+  instructions.emplace_back(ASMLine::Type::Directive, "; BEGIN remove if next is lda");
   instructions.emplace_back(ASMLine::Type::Directive, "; set CPU flags assuming A holds the higher order byte already");
   std::string set_flag_label = "flags_set_after_16_bit_op_" + std::to_string(instructions.size());
   // if high order is negative, we know it's not 0 and it is negative
@@ -787,6 +787,7 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   // if low order byte is negative, shift right by one bit, then we'll get the proper Z/N flags
   instructions.emplace_back(mos6502::OpCode::lsr);
   instructions.emplace_back(ASMLine::Type::Label, set_flag_label);
+  instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda");
 }
 
 
@@ -1470,6 +1471,67 @@ bool optimize(std::vector<mos6502> &instructions)
     } while (i < instructions.size() && instructions[i].type == ASMLine::Type::Directive);
     return i;
   };
+
+
+  // remove unused flag-fix-up blocks
+  // it might make sense in the future to only insert these if determined they are needed?
+  for (size_t op = 10; op < instructions.size(); ++op) {
+    if (instructions[op].opcode == mos6502::OpCode::lda) {
+      if (instructions[op-1].text == "; END remove if next is lda")
+      {
+        for (size_t inner_op = op-1; inner_op > 1; --inner_op) {
+          instructions[inner_op] = mos6502(ASMLine::Type::Directive,
+            "; removed unused flag fix-up: " + instructions[inner_op].to_string());
+
+          if (instructions[inner_op].text.find("; BEGIN") != std::string::npos) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+
+  // look for redundant load of lda after a tax
+  for (size_t op = 0; op < instructions.size() - 3; ++op) {
+    if (instructions[op].opcode == mos6502::OpCode::sta
+        && instructions[op+1].opcode == mos6502::OpCode::tax
+        && instructions[op+2].opcode == mos6502::OpCode::lda
+        && instructions[op].op.value == instructions[op+2].op.value)
+    {
+      instructions[op+2] = mos6502(ASMLine::Type::Directive, "; removed redundant lda: " + instructions[op+2].to_string());
+      return true;
+    }
+  }
+
+  // look for redundant stores to 0-page registers with sta
+  for (size_t op = 0; op < instructions.size(); ++op) {
+    // todo, make sure this is in the register map
+    if (instructions[op].opcode == mos6502::OpCode::sta
+        && instructions[op].op.value.size() == 3)
+    {
+      for (size_t next_op = op + 1; next_op < instructions.size(); ++next_op) {
+        if (instructions[next_op].opcode != mos6502::OpCode::sta && instructions[next_op].op.value == instructions[op].op.value) {
+          // we just found a use of ourselves back, abort the search, there's probably something else going on
+          break;
+        }
+
+        // abort at label
+        if (instructions[next_op].type == ASMLine::Type::Label) {
+          break;
+        }
+
+        if (instructions[next_op].opcode == mos6502::OpCode::sta
+          && instructions[next_op].op.value == instructions[op].op.value) {
+          // looks like we found a redundant store, remove the first one
+          instructions[op] = mos6502(ASMLine::Type::Directive,
+            "; removed redundant sta: " + instructions[op].to_string());
+          return true;
+        }
+      }
+    }
+
+  }
 
   for (size_t op = 0; op < instructions.size() - 1; ++op) {
     // look for a transfer of Y -> A immediately followed by A -> Y
