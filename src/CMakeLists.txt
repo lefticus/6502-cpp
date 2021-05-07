@@ -12,6 +12,7 @@ target_link_libraries(
   6502-c++
   PRIVATE project_options
           project_warnings
+          CONAN_PKG::ctre
           CONAN_PKG::docopt.cpp
           CONAN_PKG::fmt
           CONAN_PKG::spdlog)
