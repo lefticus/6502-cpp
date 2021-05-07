@@ -7,7 +7,7 @@ if(CPP_STARTER_USE_SDL)
 endif()
 
 # Generic test that uses conan libs
-add_executable(6502-c++ 6502-c++.cpp)
+add_executable(6502-c++ 6502-c++.cpp ../include/optimizer.hpp ../include/assembly.hpp ../include/6502.hpp ../include/personality.hpp ../include/personalities/c64.hpp)
 target_link_libraries(
   6502-c++
   PRIVATE project_options

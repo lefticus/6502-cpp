@@ -10,151 +10,10 @@
 #include <string>
 #include <vector>
 
-struct Operand
-{
-  enum class Type {
-    empty,
-    literal,
-    reg /*ister*/
-  };
-
-  Type        type    = Type::empty;
-  int         reg_num = 0;
-  std::string value;
-
-  Operand() = default;
-
-  bool operator==(const Operand &other) const
-  {
-    return type == other.type && reg_num == other.reg_num && value == other.value;
-  }
-
-  Operand(const Type t, std::string v)
-    : type(t), value(std::move(v))
-  {
-    assert(type == Type::literal);
-  }
-
-  Operand(const Type t, const int num)
-    : type(t), reg_num(num)
-  {
-    assert(type == Type::reg);
-  }
-};
-
-struct mos6502;
-
-class Personality
-{
-public:
-  virtual void insert_autostart_sequence(std::vector<mos6502> &new_instructions) const = 0;
-  [[nodiscard]] virtual Operand get_register(const int reg_num) const = 0;
-  
-  virtual ~Personality() = default;
-  Personality(const Personality &) = delete;
-  Personality(Personality &&) = delete;
-  Personality &operator=(const Personality &) = delete;
-  Personality &operator=(Personality &&) = delete;
-
-protected:
-  Personality() = default;
-};
-
-struct ASMLine
-{
-  enum class Type {
-    Label,
-    Instruction,
-    Directive
-  };
-
-  ASMLine(Type t, std::string te) : type(t), text(std::move(te)) {}
-
-  Type        type;
-  std::string text;
-};
-
-struct C64 : Personality
-{
-
-  void insert_autostart_sequence(std::vector<mos6502> &new_instructions) const override {
-    new_instructions.emplace_back(ASMLine::Type::Directive, "; jmp to start of program with BASIC");
-  new_instructions.emplace_back(ASMLine::Type::Directive, ".byt $0B,$08,$0A,$00,$9E,$32,$30,$36,$31,$00,$00,$00");
-  }
-
-  [[nodiscard]] Operand get_register(const int reg_num) const override
-  {
-    switch (reg_num) {
-      //  http://sta.c64.org/cbm64mem.html
-    case 0:
-      return Operand(Operand::Type::literal, "$a7");// bit buffer for rs232
-    case 1:
-      return Operand(Operand::Type::literal, "$a8");// counter for rs232
-    case 2:
-      return Operand(Operand::Type::literal, "$05");// unused, int->fp routine pointer
-    case 3:
-      return Operand(Operand::Type::literal, "$06");
-    case 4:
-      return Operand(Operand::Type::literal, "$fb");// unused
-    case 5:
-      return Operand(Operand::Type::literal, "$fc");// unused
-    case 6:
-      return Operand(Operand::Type::literal, "$fd");// unused
-    case 7:
-      return Operand(Operand::Type::literal, "$fe");// unused
-    case 8:
-      return Operand(Operand::Type::literal, "$22");// unused
-    case 9:
-      return Operand(Operand::Type::literal, "$23");// unused
-    case 10:
-      return Operand(Operand::Type::literal, "$39");// Current BASIC line number
-    case 11:
-      return Operand(Operand::Type::literal, "$3a");// Current BASIC line number
-    case 12:
-      return Operand(Operand::Type::literal, "$61");// arithmetic register #1
-    case 13:
-      return Operand(Operand::Type::literal, "$62");
-    case 14:
-      return Operand(Operand::Type::literal, "$63");
-    case 15:
-      return Operand(Operand::Type::literal, "$64");
-    case 16:
-      return Operand(Operand::Type::literal, "$65");
-    case 17:
-      return Operand(Operand::Type::literal, "$69");// arithmetic register #2
-    case 18:
-      return Operand(Operand::Type::literal, "$6a");
-    case 19:
-      return Operand(Operand::Type::literal, "$6b");
-    case 20:
-      return Operand(Operand::Type::literal, "$6c");
-    case 21:
-      return Operand(Operand::Type::literal, "$6d");
-    case 22:
-      return Operand(Operand::Type::literal, "$57");// arithmetic register #3
-    case 23:
-      return Operand(Operand::Type::literal, "$58");
-    case 24:
-      return Operand(Operand::Type::literal, "$59");
-    case 25:
-      return Operand(Operand::Type::literal, "$5a");
-    case 26:
-      return Operand(Operand::Type::literal, "$5b");
-    case 27:
-      return Operand(Operand::Type::literal, "$5c");// arithmetic register #4
-    case 28:
-      return Operand(Operand::Type::literal, "$5d");
-    case 29:
-      return Operand(Operand::Type::literal, "$5e");
-    case 30:
-      return Operand(Operand::Type::literal, "$5f");
-    case 31:
-      return Operand(Operand::Type::literal, "$60");
-    }
-    throw std::runtime_error("Unhandled register number: " + std::to_string(reg_num));
-  }
-};
-
+#include "../include/assembly.hpp"
+#include "../include/6502.hpp"
+#include "../include/optimizer.hpp"
+#include "../include/personalities/c64.hpp"
 
 int parse_8bit_literal(const std::string &s)
 {
@@ -199,240 +58,6 @@ std::string fixup_8bit_literal(const std::string &s)
   return s;
 }
 
-
-struct mos6502 : ASMLine
-{
-  enum class OpCode {
-    unknown,
-
-    adc,
-    AND,
-    asl,
-
-    bcc,
-    bcs,
-    beq,
-    bit,
-    bmi,
-    bne,
-    bpl,
-
-    cpy,
-    cmp,
-    clc,
-
-    dec,
-
-    eor,
-
-    inc,
-
-    jmp,
-    jsr,
-
-    lda,
-    ldy,
-    lsr,
-
-    ORA,
-
-    pha,
-    php,
-    pla,
-    plp,
-
-    rol,
-    ror,
-    rts,
-
-    sbc,
-    sec,
-    sta,
-    sty,
-
-    tax,
-    tay,
-    txa,
-    tya,
-  };
-
-  static bool get_is_branch(const OpCode o)
-  {
-    switch (o) {
-    case OpCode::beq:
-    case OpCode::bne:
-    case OpCode::bmi:
-    case OpCode::bpl:
-    case OpCode::bcc:
-    case OpCode::bcs:
-      return true;
-    case OpCode::adc:
-    case OpCode::AND:
-    case OpCode::asl:
-    case OpCode::bit:
-    case OpCode::cpy:
-    case OpCode::cmp:
-    case OpCode::clc:
-    case OpCode::dec:
-    case OpCode::eor:
-    case OpCode::inc:
-    case OpCode::jmp:
-    case OpCode::jsr:
-    case OpCode::lda:
-    case OpCode::ldy:
-    case OpCode::lsr:
-    case OpCode::ORA:
-    case OpCode::pha:
-    case OpCode::php:
-    case OpCode::pla:
-    case OpCode::plp:
-    case OpCode::rol:
-    case OpCode::ror:
-    case OpCode::rts:
-    case OpCode::sbc:
-    case OpCode::sec:
-    case OpCode::sta:
-    case OpCode::sty:
-    case OpCode::tax:
-    case OpCode::tay:
-    case OpCode::txa:
-    case OpCode::tya:
-
-    case OpCode::unknown:
-      break;
-    }
-    return false;
-  }
-
-  static bool get_is_comparison(const OpCode o)
-  {
-    switch (o) {
-    case OpCode::bit:
-    case OpCode::cmp:
-    case OpCode::cpy:
-      return true;
-    case OpCode::adc:
-    case OpCode::AND:
-    case OpCode::asl:
-    case OpCode::beq:
-    case OpCode::bne:
-    case OpCode::bmi:
-    case OpCode::bpl:
-    case OpCode::bcc:
-    case OpCode::bcs:
-    case OpCode::clc:
-    case OpCode::dec:
-    case OpCode::eor:
-    case OpCode::inc:
-    case OpCode::jmp:
-    case OpCode::jsr:
-    case OpCode::lda:
-    case OpCode::ldy:
-    case OpCode::lsr:
-    case OpCode::ORA:
-    case OpCode::pha:
-    case OpCode::php:
-    case OpCode::pla:
-    case OpCode::plp:
-    case OpCode::rol:
-    case OpCode::ror:
-    case OpCode::rts:
-    case OpCode::sbc:
-    case OpCode::sec:
-    case OpCode::sta:
-    case OpCode::sty:
-    case OpCode::tax:
-    case OpCode::tay:
-    case OpCode::txa:
-    case OpCode::tya:
-    case OpCode::unknown:
-      break;
-    }
-    return false;
-  }
-
-
-  explicit mos6502(const OpCode o)
-    : ASMLine(Type::Instruction, std::string{ to_string(o) }), opcode(o), is_branch(get_is_branch(o)), is_comparison(get_is_comparison(o))
-  {
-  }
-
-  mos6502(const Type t, std::string s)
-    : ASMLine(t, std::move(s))
-  {
-  }
-
-  mos6502(const OpCode o, Operand t_o)
-    : ASMLine(Type::Instruction, std::string{ to_string(o) }), opcode(o), op(std::move(t_o)), is_branch(get_is_branch(o)), is_comparison(get_is_comparison(o))
-  {
-  }
-
-  constexpr static std::string_view to_string(const OpCode o)
-  {
-    switch (o) {
-    case OpCode::lda: return "lda";
-    case OpCode::asl: return "asl";
-    case OpCode::rol: return "rol";
-    case OpCode::ldy: return "ldy";
-    case OpCode::tay: return "tay";
-    case OpCode::tya: return "tya";
-    case OpCode::tax: return "tax";
-    case OpCode::txa: return "txa";
-    case OpCode::cpy: return "cpy";
-    case OpCode::eor: return "eor";
-    case OpCode::sta: return "sta";
-    case OpCode::sty: return "sty";
-    case OpCode::pha: return "pha";
-    case OpCode::pla: return "pla";
-    case OpCode::php: return "php";
-    case OpCode::plp: return "plp";
-    case OpCode::lsr: return "lsr";
-    case OpCode::ror: return "ror";
-    case OpCode::AND: return "and";
-    case OpCode::inc: return "inc";
-    case OpCode::dec: return "dec";
-    case OpCode::ORA: return "ora";
-    case OpCode::cmp: return "cmp";
-    case OpCode::bne: return "bne";
-    case OpCode::bmi: return "bmi";
-    case OpCode::beq: return "beq";
-    case OpCode::jmp: return "jmp";
-    case OpCode::adc: return "adc";
-    case OpCode::sbc: return "sbc";
-    case OpCode::rts: return "rts";
-    case OpCode::clc: return "clc";
-    case OpCode::sec: return "sec";
-    case OpCode::bit: return "bit";
-    case OpCode::jsr: return "jsr";
-    case OpCode::bpl: return "bpl";
-    case OpCode::bcc: return "bcc";
-    case OpCode::bcs: return "bcs";
-    case OpCode::unknown: return "";
-    }
-
-    return "";
-  }
-
-  [[nodiscard]] std::string to_string() const
-  {
-    switch (type) {
-    case ASMLine::Type::Label:
-      return text;// + ':';
-    case ASMLine::Type::Directive:
-    case ASMLine::Type::Instruction: {
-      return fmt::format("\t{} {:15}; {}", text, op.value, comment);
-    }
-    }
-    throw std::runtime_error("Unable to render: " + text);
-  }
-
-
-  OpCode      opcode = OpCode::unknown;
-  Operand     op;
-  std::string comment;
-  bool        is_branch     = false;
-  bool        is_comparison = false;
-};
 
 
 struct AVR : ASMLine
@@ -872,6 +497,7 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
     return;
   }
+
   case AVR::OpCode::cpc: {
     // this instruction seems to need to be used in the case after a sbc operation, where the
     // carry flag is set to the appropriate borrow state, so I'm going to not invert
@@ -882,6 +508,7 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o2_reg_num));
     return;
   }
+
   case AVR::OpCode::brsh: {
     if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcs instead of bcc
@@ -996,140 +623,6 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
   }
 }
 
-bool optimize(std::vector<mos6502> &instructions)
-{
-  if (instructions.size() < 2) {
-    return false;
-  }
-
-  const auto next_instruction = [&instructions](auto i) {
-    do {
-      ++i;
-    } while (i < instructions.size() && instructions[i].type == ASMLine::Type::Directive);
-    return i;
-  };
-
-
-  // remove unused flag-fix-up blocks
-  // it might make sense in the future to only insert these if determined they are needed?
-  for (size_t op = 10; op < instructions.size(); ++op) {
-    if (instructions[op].opcode == mos6502::OpCode::lda) {
-      if (instructions[op - 1].text == "; END remove if next is lda") {
-        for (size_t inner_op = op - 1; inner_op > 1; --inner_op) {
-          instructions[inner_op] = mos6502(ASMLine::Type::Directive,
-            "; removed unused flag fix-up: " + instructions[inner_op].to_string());
-
-          if (instructions[inner_op].text.find("; BEGIN") != std::string::npos) {
-            return true;
-          }
-        }
-      }
-    }
-  }
-
-
-  // look for redundant load of lda after a tax
-  for (size_t op = 0; op < instructions.size() - 3; ++op) {
-    if (instructions[op].opcode == mos6502::OpCode::sta
-        && instructions[op + 1].opcode == mos6502::OpCode::tax
-        && instructions[op + 2].opcode == mos6502::OpCode::lda
-        && instructions[op].op.value == instructions[op + 2].op.value) {
-      instructions[op + 2] = mos6502(ASMLine::Type::Directive, "; removed redundant lda: " + instructions[op + 2].to_string());
-      return true;
-    }
-  }
-
-  // look for redundant stores to 0-page registers with sta
-  for (size_t op = 0; op < instructions.size(); ++op) {
-    // todo, make sure this is in the register map
-    if (instructions[op].opcode == mos6502::OpCode::sta
-        && instructions[op].op.value.size() == 3) {
-      for (size_t next_op = op + 1; next_op < instructions.size(); ++next_op) {
-        if (instructions[next_op].opcode != mos6502::OpCode::sta && instructions[next_op].op.value == instructions[op].op.value) {
-          // we just found a use of ourselves back, abort the search, there's probably something else going on
-          break;
-        }
-        if (instructions[next_op].opcode == mos6502::OpCode::lda && instructions[next_op].op.value != instructions[op].op.value) {
-          // someone just loaded lda with a different value, so we need to abort!
-          break;
-        }
-
-        // abort at label
-        if (instructions[next_op].type == ASMLine::Type::Label) {
-          break;
-        }
-
-        if (instructions[next_op].opcode == mos6502::OpCode::sta
-            && instructions[next_op].op.value == instructions[op].op.value) {
-          // looks like we found a redundant store, remove the first one
-          instructions[op] = mos6502(ASMLine::Type::Directive,
-            "; removed redundant sta: " + instructions[op].to_string());
-          return true;
-        }
-      }
-    }
-  }
-
-  for (size_t op = 0; op < instructions.size() - 1; ++op) {
-    // look for a transfer of Y -> A immediately followed by A -> Y
-    if (instructions[op].opcode == mos6502::OpCode::tya) {
-      next_instruction(op);
-      if (instructions[op].opcode == mos6502::OpCode::tay) {
-        instructions[op] = mos6502(ASMLine::Type::Directive,
-          "; removed redundant tay: " + instructions[op].to_string());
-        return true;
-      }
-    }
-  }
-
-  for (size_t op = 0; op < instructions.size() - 1; ++op) {
-    // look for a store A -> loc immediately followed by loc -> A
-    if (instructions[op].opcode == mos6502::OpCode::sta) {
-      const auto next = next_instruction(op);
-      if (instructions[next].opcode == mos6502::OpCode::lda
-          && instructions[next].op == instructions[op].op) {
-        instructions[next] = mos6502(ASMLine::Type::Directive,
-          "; removed redundant lda: " + instructions[next].to_string());
-        return true;
-      }
-    }
-  }
-
-  for (size_t op = 0; op < instructions.size() - 1; ++op) {
-    if (instructions[op].opcode == mos6502::OpCode::ldy && instructions[op].op.type == Operand::Type::literal) {
-      auto op2 = op + 1;
-
-      while (op2 < instructions.size() && (instructions[op2].type != ASMLine::Type::Label)) {
-        // while inside this label
-        if (instructions[op2].opcode == mos6502::OpCode::ldy && instructions[op2].op.value == instructions[op].op.value) {
-          instructions[op2] = mos6502(ASMLine::Type::Directive, "; removed redundant ldy: " + instructions[op2].to_string());
-          return true;
-        }
-        ++op2;
-      }
-    }
-  }
-
-  for (size_t op = 0; op < instructions.size() - 1; ++op) {
-    if (instructions[op].opcode == mos6502::OpCode::lda
-        && instructions[op].op.type == Operand::Type::literal) {
-      const auto operand = instructions[op].op;
-      auto       op2     = op + 1;
-      // look for multiple stores of the same value
-      while (op2 < instructions.size() && (instructions[op2].opcode == mos6502::OpCode::sta || instructions[op2].type == ASMLine::Type::Directive)) {
-        ++op2;
-      }
-      if (instructions[op2].opcode == mos6502::OpCode::lda
-          && operand == instructions[op2].op) {
-        instructions[op2] = mos6502(ASMLine::Type::Directive,
-          "; removed redundant lda: " + instructions[op2].to_string());
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
 
 bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_count)
 {
@@ -1290,13 +783,9 @@ void run(const Personality &personality, std::istream &input)
     }();
 
 
-  for (const auto &l : new_labels) {
-    std::clog << "Label: '" << l.first << "': '" << l.second << "'\n";
-  }
 
   for (auto &i : instructions) {
     if (i.type == ASMLine::Type::Label) {
-      std::clog << "Looking up Label: '" << i.text << "'\n";
       if (i.text == "0") {
         i.text = "-memcpy_0";
       } else {
@@ -1323,11 +812,9 @@ void run(const Personality &personality, std::istream &input)
     }
   }
 
-  constexpr static auto start_address = 0x0801;
 
   std::vector<mos6502> new_instructions;
-  new_instructions.emplace_back(ASMLine::Type::Directive, ".word " + std::to_string(start_address));
-  new_instructions.emplace_back(ASMLine::Type::Directive, "* = " + std::to_string(start_address));
+
   personality.insert_autostart_sequence(new_instructions);
  // set __zero_reg__ (reg 1 on AVR) to 0
   new_instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#$00"));
