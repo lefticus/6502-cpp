@@ -17,6 +17,15 @@ struct C64 : Personality
     new_instructions.emplace_back(ASMLine::Type::Directive, ".byt $0B,$08,$0A,$00,$9E,$32,$30,$36,$31,$00,$00,$00");
   }
 
+  [[nodiscard]] std::string_view stack_low_address() const override
+  {
+    return "$02";
+  }
+  [[nodiscard]] std::string_view stack_high_address() const override
+  {
+    return "$03";
+  }
+
   [[nodiscard]] Operand get_register(const int reg_num) const override
   {
     switch (reg_num) {

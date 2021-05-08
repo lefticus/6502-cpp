@@ -9,17 +9,25 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <spdlog/spdlog.h>
+#include <charconv>
 
 #include "../include/assembly.hpp"
 #include "../include/6502.hpp"
 #include "../include/optimizer.hpp"
 #include "../include/personalities/c64.hpp"
 
-int parse_8bit_literal(const std::string &s)
-{
-  return std::stoi(std::string(std::next(std::begin(s)), std::end(s)));
+
+int to_int(const std::string_view sv) {
+  int result{};
+  std::from_chars(sv.begin(), sv.end(), result);
+  return result;
 }
 
+int parse_8bit_literal(const std::string_view s)
+{
+  return to_int(s.substr(1));
+}
 
 std::string_view strip_lo_hi(std::string_view s)
 {
@@ -66,6 +74,7 @@ struct AVR : ASMLine
     unknown,
 
     adc,
+    adiw,
     add,
     andi,
 
@@ -76,6 +85,7 @@ struct AVR : ASMLine
 
     clr,
     com,
+    cp,
     cpc,
     cpi,
     cpse,
@@ -83,7 +93,10 @@ struct AVR : ASMLine
 
     eor,
 
+    in,
+
     ld,
+    ldd,
     ldi,
     lds,
     lsl,
@@ -99,12 +112,15 @@ struct AVR : ASMLine
     rjmp,
     rol,
 
+    sbc,
     sbci,
     sbiw,
     sbrc,
     sbrs,
     st,
+    std,
     sts,
+    sub,
     subi,
     swap,
   };
@@ -124,9 +140,13 @@ struct AVR : ASMLine
       if (o == "rol") { return OpCode::rol; }
       if (o == "rcall") { return OpCode::rcall; }
       if (o == "ld") { return OpCode::ld; }
+      if (o == "sub") { return OpCode::subi; }
       if (o == "subi") { return OpCode::subi; }
+      if (o == "sbc") { return OpCode::sbci; }
       if (o == "sbci") { return OpCode::sbci; }
       if (o == "st") { return OpCode::st; }
+      if (o == "std") { return OpCode::std; }
+      if (o == "ldd") { return OpCode::ldd; }
       if (o == "lds") { return OpCode::lds; }
       if (o == "lsr") { return OpCode::lsr; }
       if (o == "andi") { return OpCode::andi; }
@@ -136,6 +156,7 @@ struct AVR : ASMLine
       if (o == "sbrs") { return OpCode::sbrs; }
       if (o == "brne") { return OpCode::brne; }
       if (o == "dec") { return OpCode::dec; }
+      if (o == "adiw") { return OpCode::adiw; }
       if (o == "sbiw") { return OpCode::sbiw; }
       if (o == "push") { return OpCode::push; }
       if (o == "pop") { return OpCode::pop; }
@@ -148,11 +169,13 @@ struct AVR : ASMLine
       if (o == "add") { return OpCode::add; }
       if (o == "adc") { return OpCode::adc; }
       if (o == "cpc") { return OpCode::cpc; }
+      if (o == "cp") { return OpCode::cp; }
       if (o == "brsh") { return OpCode::brsh; }
       if (o == "breq") { return OpCode::breq; }
+      if (o == "in") { return OpCode::in; }
     }
     }
-    throw std::runtime_error(fmt::format("Unknown opcode: {}"));
+    throw std::runtime_error(fmt::format("Unknown opcode: {}", o));
   }
 
   static int get_register_number(const char reg_name)
@@ -177,7 +200,7 @@ struct AVR : ASMLine
     }
 
     if (o[0] == 'r' && o.size() > 1) {
-      return Operand(Operand::Type::reg, atoi(&o[1]));
+      return Operand(Operand::Type::reg, to_int(o.substr(1)));
     } else {
       return Operand(Operand::Type::literal, std::string{ o });
     }
@@ -196,17 +219,17 @@ struct AVR : ASMLine
   Operand     operand2;
 };
 
-void indirect_load(std::vector<mos6502> &instructions, const std::string &from_address_low_byte, const std::string &to_address)
+void indirect_load(std::vector<mos6502> &instructions, const std::string &from_address_low_byte, const std::string &to_address, const int offset = 0)
 {
-  instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, "#0"));
+  instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, fmt::format("#{}", offset)));
   instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "(" + from_address_low_byte + "), Y"));
   instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, to_address));
 }
 
-void indirect_store(std::vector<mos6502> &instructions, const std::string &from_address, const std::string &to_address_low_byte)
+void indirect_store(std::vector<mos6502> &instructions, const std::string &from_address, const std::string &to_address_low_byte, const int offset = 0)
 {
   instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, from_address));
-  instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, "#0"));
+  instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, fmt::format("#{}", offset)));
   instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, "(" + to_address_low_byte + "), Y"));
 }
 
@@ -232,6 +255,19 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda");
 }
 
+void add_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg, const std::uint16_t value)
+{
+  //instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, address_low_byte));
+  instructions.emplace_back(mos6502::OpCode::clc);
+  instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
+  instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#" + std::to_string((value & 0xFFu))));
+  instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg));
+  instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
+  instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#" + std::to_string((value >> 8u) & 0xFFu)));
+  instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
+  instructions.emplace_back(mos6502::OpCode::tax);
+  fixup_16_bit_N_Z_flags(instructions);
+}
 
 void subtract_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg, const std::uint16_t value)
 {
@@ -312,7 +348,34 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
       increment_16_bit(personality, instructions, AVR::get_register_number(o2.value[0]));
       return;
     }
-    throw std::runtime_error("Unhandled ld to non-Z");
+    throw std::runtime_error("Unknown ld indexing");
+  }
+  case AVR::OpCode::ldd: {
+    indirect_load(instructions, personality.get_register(AVR::get_register_number(o2.value[0])).value, personality.get_register(o1_reg_num).value, to_int(o2.value.substr(1)));
+    return;
+  }
+  case AVR::OpCode::std: {
+    indirect_store(instructions, personality.get_register(o2_reg_num).value, personality.get_register(AVR::get_register_number(o1.value[0])).value, to_int(o2.value.substr(1)));
+    return;
+  }
+  case AVR::OpCode::sub: {
+    // we want to utilize the carry flag, however it was set previously
+    // (it's really a borrow flag on the 6502)
+    instructions.emplace_back(mos6502::OpCode::clc);
+    instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
+    fixup_16_bit_N_Z_flags(instructions);
+    return;
+  }
+  case AVR::OpCode::sbc: {
+    // we want to utilize the carry flag, however it was set previously
+    // (it's really a borrow flag on the 6502)
+    instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
+    fixup_16_bit_N_Z_flags(instructions);
+    return;
   }
   case AVR::OpCode::sbci: {
     // we want to utilize the carry flag, however it was set previously
@@ -388,7 +451,7 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     return;
   }
   case AVR::OpCode::sbrc: {
-    instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (atoi(o2.value.c_str()))))));
+    instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (to_int(o2.value))))));
     instructions.emplace_back(mos6502::OpCode::bit, personality.get_register(o1_reg_num));
     std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
     instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
@@ -396,7 +459,7 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     return;
   }
   case AVR::OpCode::sbrs: {
-    instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (atoi(o2.value.c_str()))))));
+    instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (to_int(o2.value.c_str()))))));
     instructions.emplace_back(mos6502::OpCode::bit, personality.get_register(o1_reg_num));
     std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
     instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_label_name));
@@ -418,7 +481,12 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   }
 
   case AVR::OpCode::sbiw: {
-    subtract_16_bit(personality, instructions, o1_reg_num, static_cast<std::uint16_t>(std::stoi(o2.value)));
+    subtract_16_bit(personality, instructions, o1_reg_num, static_cast<std::uint16_t>(to_int(o2.value)));
+    return;
+  }
+
+  case AVR::OpCode::adiw: {
+    add_16_bit(personality, instructions, o1_reg_num, static_cast<std::uint16_t>(to_int(o2.value)));
     return;
   }
 
@@ -497,7 +565,12 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
     return;
   }
-
+  case AVR::OpCode::cp: {
+    // note that this will leave the C flag in the 6502 borrow state, not normal carry state
+    instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::cmp, personality.get_register(o2_reg_num));
+    return;
+  }
   case AVR::OpCode::cpc: {
     // this instruction seems to need to be used in the case after a sbc operation, where the
     // carry flag is set to the appropriate borrow state, so I'm going to not invert
@@ -522,6 +595,22 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     }
   }
 
+  case AVR::OpCode::in: {
+    if (o2.value == "__SP_L__") {
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, std::string{personality.stack_low_address()}));
+      instructions.emplace_back(mos6502::OpCode::sta, o1);
+      return;
+    }
+
+    if (o2.value == "__SP_H__") {
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, std::string{ personality.stack_high_address() }));
+      instructions.emplace_back(mos6502::OpCode::sta, o1);
+      return;
+    }
+
+    throw std::runtime_error("Could not translate unknown 'in' instruction");
+  }
+
   case AVR::OpCode::breq: {
     instructions.emplace_back(mos6502::OpCode::beq, o1);
     return;
@@ -532,33 +621,6 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   }
 
   throw std::runtime_error("Could not translate unhandled instruction");
-}
-
-enum class LogLevel {
-  Warning,
-  Error
-};
-
-std::string to_string(const LogLevel ll)
-{
-  switch (ll) {
-  case LogLevel::Warning:
-    return "warning";
-  case LogLevel::Error:
-    return "error";
-  }
-  return "unknown";
-}
-
-
-void log(LogLevel ll, const AVR &i, const std::string &message)
-{
-  std::cerr << to_string(ll) << ": " << i.line_num << ": " << message << ": `" << i.line_text << "`\n";
-}
-
-void log(LogLevel ll, const std::size_t line_no, const std::string &line, const std::string &message)
-{
-  std::cerr << to_string(ll) << ": " << line_no << ": " << message << ": `" << line << "`\n";
 }
 
 void to_mos6502(const Personality &personality, const AVR &from_instruction, std::vector<mos6502> &instructions)
@@ -606,7 +668,7 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
         translate_instruction(personality, instructions, from_instruction.opcode, from_instruction.operand1, from_instruction.operand2);
       } catch (const std::exception &e) {
         instructions.emplace_back(ASMLine::Type::Directive, "; Unhandled opcode: '" + from_instruction.text + "' " + e.what());
-        log(LogLevel::Error, from_instruction, e.what());
+        spdlog::error("[{}]: Unhandled instruction: '{}': {}", from_instruction.line_num, from_instruction.line_text, e.what());
       }
 
       auto text = from_instruction.line_text;
@@ -619,7 +681,7 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
       return;
     }
   } catch (const std::exception &e) {
-    log(LogLevel::Error, from_instruction, e.what());
+    spdlog::error("[{}]: Unhandled instruction: '{}': {}", from_instruction.line_num, from_instruction.line_text, e.what());
   }
 }
 
@@ -737,7 +799,7 @@ void run(const Personality &personality, std::istream &input)
         // skip empty lines
       }
     } catch (const std::exception &e) {
-      log(LogLevel::Error, lineno, line, e.what());
+      spdlog::error("[{}]: parse exception with '{}': {}", lineno, line, e.what());
     }
 
     ++lineno;
@@ -789,7 +851,12 @@ void run(const Personality &personality, std::istream &input)
       if (i.text == "0") {
         i.text = "-memcpy_0";
       } else {
-        i.text = new_labels.at(i.text);
+        try {
+          i.text = new_labels.at(i.text);
+        } catch (...) {
+          spdlog::error("Error looking up label name: '{}'", i.text);
+          throw;
+        }
       }
     }
 
