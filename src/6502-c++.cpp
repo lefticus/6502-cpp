@@ -304,11 +304,11 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     return;
   case AVR::OpCode::ld: {
     if (o2.value == "Z" || o2.value == "X" || o2.value == "Y") {
-      indirect_load(instructions, personality.get_register(o2.value[0]).value, personality.get_register(o1_reg_num).value);
+      indirect_load(instructions, personality.get_register(AVR::get_register_number(o2.value[0])).value, personality.get_register(o1_reg_num).value);
       return;
     }
     if (o2.value == "Z+" || o2.value == "X+" || o2.value == "Y+") {
-      indirect_load(instructions, personality.get_register(o2.value[0]).value, personality.get_register(o1_reg_num).value);
+      indirect_load(instructions, personality.get_register(AVR::get_register_number(o2.value[0])).value, personality.get_register(o1_reg_num).value);
       increment_16_bit(personality, instructions, AVR::get_register_number(o2.value[0]));
       return;
     }
@@ -348,11 +348,11 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   }
   case AVR::OpCode::st: {
     if (o1.value == "Z" || o1.value == "Y" || o1.value == "X") {
-      indirect_store(instructions, personality.get_register(o2_reg_num).value, personality.get_register(o1.value[0]).value);
+      indirect_store(instructions, personality.get_register(o2_reg_num).value, personality.get_register(AVR::get_register_number(o1.value[0])).value);
       return;
     }
     if (o1.value == "Z+" || o1.value == "Y+" || o1.value == "X+") {
-      indirect_store(instructions, personality.get_register(o2_reg_num).value, personality.get_register(o1.value[0]).value);
+      indirect_store(instructions, personality.get_register(o2_reg_num).value, personality.get_register(AVR::get_register_number(o1.value[0])).value);
       increment_16_bit(personality, instructions, AVR::get_register_number(o1.value[0]));
       return;
     }
