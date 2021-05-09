@@ -15,6 +15,12 @@ struct C64 : Personality
     new_instructions.emplace_back(ASMLine::Type::Directive, "* = " + std::to_string(start_address));
     new_instructions.emplace_back(ASMLine::Type::Directive, "; jmp to start of program with BASIC");
     new_instructions.emplace_back(ASMLine::Type::Directive, ".byt $0B,$08,$0A,$00,$9E,$32,$30,$36,$31,$00,$00,$00");
+
+    // load start of stack space into stack address pointers
+    new_instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#$FF"));
+    new_instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, std::string{stack_low_address()}));
+    new_instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#$CF"));
+    new_instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, std::string{ stack_high_address() }));
   }
 
   [[nodiscard]] std::string_view stack_low_address() const override
@@ -94,6 +100,9 @@ struct C64 : Personality
       return Operand(Operand::Type::literal, "$5f");
     case 31:
       return Operand(Operand::Type::literal, "$60");
+    case 32:
+      // 32 is the "Stack Pointer", because I decided so, I mean, it makes sense
+      return Operand(Operand::Type::literal, std::string{stack_low_address()});
     }
     throw std::runtime_error("Unhandled register number: " + std::to_string(reg_num));
   }
