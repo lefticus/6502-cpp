@@ -100,9 +100,6 @@ struct C64 : Personality
       return Operand(Operand::Type::literal, "$5f");
     case 31:
       return Operand(Operand::Type::literal, "$60");
-    case 32:
-      // 32 is the "Stack Pointer", because I decided so, I mean, it makes sense
-      return Operand(Operand::Type::literal, std::string{stack_low_address()});
     }
     throw std::runtime_error("Unhandled register number: " + std::to_string(reg_num));
   }

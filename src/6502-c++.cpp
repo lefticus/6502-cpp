@@ -116,6 +116,8 @@ struct AVR : ASMLine
 
     mov,
 
+    out,
+
     pop,
     push,
 
@@ -185,6 +187,7 @@ struct AVR : ASMLine
       if (o == "brsh") { return OpCode::brsh; }
       if (o == "breq") { return OpCode::breq; }
       if (o == "in") { return OpCode::in; }
+      if (o == "out") { return OpCode::out; }
     }
     }
     throw std::runtime_error(fmt::format("Unknown opcode: {}", o));
@@ -249,7 +252,7 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
 {
 
   // need to get both Z and N set appropriately
-  // assuming A contains higher order byte and Y contains lower order byte
+  // assuming A contains higher order byte and X contains lower order byte
   instructions.emplace_back(ASMLine::Type::Directive, "; BEGIN remove if next is lda");
   instructions.emplace_back(ASMLine::Type::Directive, "; set CPU flags assuming A holds the higher order byte already");
   std::string set_flag_label = "flags_set_after_16_bit_op_" + std::to_string(instructions.size());
@@ -269,29 +272,29 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
 
 void add_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg, const std::uint16_t value)
 {
-  //instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, address_low_byte));
   instructions.emplace_back(mos6502::OpCode::clc);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
   instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#" + std::to_string((value & 0xFFu))));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg));
+  instructions.emplace_back(mos6502::OpCode::tax);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
   instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#" + std::to_string((value >> 8u) & 0xFFu)));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
-  instructions.emplace_back(mos6502::OpCode::tax);
+
   fixup_16_bit_N_Z_flags(instructions);
 }
 
 void subtract_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg, const std::uint16_t value)
 {
-  //instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, address_low_byte));
   instructions.emplace_back(mos6502::OpCode::sec);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
   instructions.emplace_back(mos6502::OpCode::sbc, Operand(Operand::Type::literal, "#" + std::to_string((value & 0xFFu))));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg));
+  instructions.emplace_back(mos6502::OpCode::tax);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
   instructions.emplace_back(mos6502::OpCode::sbc, Operand(Operand::Type::literal, "#" + std::to_string((value >> 8u) & 0xFFu)));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
-  instructions.emplace_back(mos6502::OpCode::tax);
+
   fixup_16_bit_N_Z_flags(instructions);
 }
 
@@ -626,16 +629,30 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
       return;
     }
   }
+  case AVR::OpCode::out: {
+    if (o1.value == "__SP_L__") {
+      instructions.emplace_back(mos6502::OpCode::ldx, personality.get_register(o2_reg_num));
+      instructions.emplace_back(mos6502::OpCode::txs);
+      return;
+    }
+
+    if (o1.value == "__SP_H__") {
+      // officially nothing to do - we cannot change the high byte of the SP on 6502
+      return;
+    }
+
+    throw std::runtime_error("Could not translate unknown 'out' instruction");
+  }
 
   case AVR::OpCode::in: {
     if (o2.value == "__SP_L__") {
-      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, std::string{ personality.stack_low_address() }));
-      instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
+      instructions.emplace_back(mos6502::OpCode::tsx);
+      instructions.emplace_back(mos6502::OpCode::stx, personality.get_register(o1_reg_num));
       return;
     }
 
     if (o2.value == "__SP_H__") {
-      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, std::string{ personality.stack_high_address() }));
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "$01"));
       instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
       return;
     }

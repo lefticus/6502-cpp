@@ -103,6 +103,10 @@ bool optimize(std::vector<mos6502> &instructions)
     }
   }
 
+  // todo: fix this ldy redundant move, right now it doesn't
+  // take into account if Y has been used
+
+  /*
   for (size_t op = 0; op < instructions.size() - 1; ++op) {
     if (instructions[op].opcode == mos6502::OpCode::ldy && instructions[op].op.type == Operand::Type::literal) {
       auto op2 = op + 1;
@@ -116,7 +120,9 @@ bool optimize(std::vector<mos6502> &instructions)
         ++op2;
       }
     }
-  }
+   }
+   */
+  
 
   for (size_t op = 0; op < instructions.size() - 1; ++op) {
     if (instructions[op].opcode == mos6502::OpCode::lda

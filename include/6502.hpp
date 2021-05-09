@@ -34,6 +34,7 @@ struct mos6502 : ASMLine
     jsr,
 
     lda,
+    ldx,
     ldy,
     lsr,
 
@@ -51,11 +52,14 @@ struct mos6502 : ASMLine
     sbc,
     sec,
     sta,
+    stx,
     sty,
 
     tax,
     tay,
+    tsx,
     txa,
+    txs,
     tya,
   };
 
@@ -82,6 +86,7 @@ struct mos6502 : ASMLine
     case OpCode::jmp:
     case OpCode::jsr:
     case OpCode::lda:
+    case OpCode::ldx:
     case OpCode::ldy:
     case OpCode::lsr:
     case OpCode::ORA:
@@ -96,9 +101,12 @@ struct mos6502 : ASMLine
     case OpCode::sec:
     case OpCode::sta:
     case OpCode::sty:
+    case OpCode::stx:
     case OpCode::tax:
     case OpCode::tay:
+    case OpCode::tsx:
     case OpCode::txa:
+    case OpCode::txs:
     case OpCode::tya:
 
     case OpCode::unknown:
@@ -130,6 +138,7 @@ struct mos6502 : ASMLine
     case OpCode::jmp:
     case OpCode::jsr:
     case OpCode::lda:
+    case OpCode::ldx:
     case OpCode::ldy:
     case OpCode::lsr:
     case OpCode::ORA:
@@ -143,10 +152,13 @@ struct mos6502 : ASMLine
     case OpCode::sbc:
     case OpCode::sec:
     case OpCode::sta:
+    case OpCode::stx:
     case OpCode::sty:
     case OpCode::tax:
     case OpCode::tay:
+    case OpCode::tsx:
     case OpCode::txa:
+    case OpCode::txs:
     case OpCode::tya:
     case OpCode::unknown:
       break;
@@ -176,15 +188,19 @@ struct mos6502 : ASMLine
     case OpCode::lda: return "lda";
     case OpCode::asl: return "asl";
     case OpCode::rol: return "rol";
+    case OpCode::ldx: return "ldx";
     case OpCode::ldy: return "ldy";
     case OpCode::tay: return "tay";
     case OpCode::tya: return "tya";
     case OpCode::tax: return "tax";
+    case OpCode::tsx: return "tsx";
     case OpCode::txa: return "txa";
+    case OpCode::txs: return "txs";
     case OpCode::cpy: return "cpy";
     case OpCode::eor: return "eor";
     case OpCode::sta: return "sta";
     case OpCode::sty: return "sty";
+    case OpCode::stx: return "stx";
     case OpCode::pha: return "pha";
     case OpCode::pla: return "pla";
     case OpCode::php: return "php";
