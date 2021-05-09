@@ -385,11 +385,9 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     throw std::runtime_error("Unhandled 'std'");
   }
   case AVR::OpCode::sub: {
-    // we want to utilize the carry flag, however it was set previously
-    // (it's really a borrow flag on the 6502)
-    instructions.emplace_back(mos6502::OpCode::clc);
+    instructions.emplace_back(mos6502::OpCode::sec);
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
-    instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o2_reg_num));
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
     fixup_16_bit_N_Z_flags(instructions);
     return;
@@ -398,7 +396,7 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     // we want to utilize the carry flag, however it was set previously
     // (it's really a borrow flag on the 6502)
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
-    instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o2_reg_num));
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
     fixup_16_bit_N_Z_flags(instructions);
     return;
@@ -716,7 +714,9 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
         if (!zeros.empty()) {
           instructions.emplace_back(ASMLine::Type::Directive, zeros);
         }
-
+      } else if (from_instruction.text[0] == ';') {
+        // it's a comment
+        instructions.emplace_back(ASMLine::Type::Directive, from_instruction.text);
       } else {
         instructions.emplace_back(ASMLine::Type::Directive, "; Unknown directive: " + from_instruction.text);
       }
@@ -826,12 +826,12 @@ bool fix_overwritten_flags(std::vector<mos6502> &instructions)
 
 void run(const Personality &personality, std::istream &input)
 {
-  std::regex Comment(R"(\s*\#.*)");
+  std::regex Comment(R"(\s*(\#|;)(.*))");
   std::regex Label(R"(^\s*(\S+):.*)");
   std::regex Directive(R"(^\s*(\..+))");
-  std::regex UnaryInstruction(R"(^\s+(\S+)\s+(\S+))");
-  std::regex BinaryInstruction(R"(^\s+(\S+)\s+(\S+),\s*(\S+))");
-  std::regex Instruction(R"(^\s+(\S+))");
+  std::regex UnaryInstruction(R"(^\s+(\S+)\s+(\S+).*)");
+  std::regex BinaryInstruction(R"(^\s+(\S+)\s+(\S+),\s*(\S+).*)");
+  std::regex Instruction(R"(^\s+(\S+).*)");
 
   std::size_t lineno = 0;
 
@@ -846,7 +846,8 @@ void run(const Personality &personality, std::istream &input)
       if (std::regex_match(line, match, Label)) {
         instructions.emplace_back(lineno, line, ASMLine::Type::Label, match[1].str());
       } else if (std::regex_match(line, match, Comment)) {
-        // don't care about comments
+        // save comments!
+        instructions.emplace_back(lineno, line, ASMLine::Type::Directive, "; " + match[2].str());
       } else if (std::regex_match(line, match, Directive)) {
         instructions.emplace_back(lineno, line, ASMLine::Type::Directive, match[1].str());
       } else if (std::regex_match(line, match, BinaryInstruction)) {

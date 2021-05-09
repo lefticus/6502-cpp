@@ -6,6 +6,8 @@
 
 bool optimize(std::vector<mos6502> &instructions)
 {
+ // return false;
+
   if (instructions.size() < 2) {
     return false;
   }
