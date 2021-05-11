@@ -984,9 +984,12 @@ void run(const Personality &personality, std::istream &input)
     }
   }
 
-  while (fix_overwritten_flags(new_instructions)) {
+  // it seems that with the move to AVR for the base, this
+  // fixup no longer makes sense, but I'm not going to remove it just yet
+  // until we have more complex C++ examples working
+//  while (fix_overwritten_flags(new_instructions)) {
     // do it however many times it takes
-  }
+//  }
 
   while (optimize(new_instructions)) {
     // do it however many times it takes
