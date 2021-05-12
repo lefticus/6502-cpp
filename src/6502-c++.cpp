@@ -95,6 +95,7 @@ struct AVR : ASMLine
     brne,
     brsh,
 
+    call,
     clr,
     com,
     cp,
@@ -155,6 +156,7 @@ struct AVR : ASMLine
       if (o == "rol") { return OpCode::rol; }
       if (o == "ror") { return OpCode::ror; }
       if (o == "rcall") { return OpCode::rcall; }
+      if (o == "call") { return OpCode::call; }
       if (o == "ld") { return OpCode::ld; }
       if (o == "sub") { return OpCode::sub; }
       if (o == "subi") { return OpCode::subi; }
@@ -355,9 +357,19 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   case AVR::OpCode::ror:
     instructions.emplace_back(mos6502::OpCode::ror, personality.get_register(o1_reg_num));
     return;
+  case AVR::OpCode::call:
+    if (o1.value != ".") {
+      instructions.emplace_back(mos6502::OpCode::jsr, o1);
+      return;
+    }
+    throw std::runtime_error("Unhandled call");
   case AVR::OpCode::rcall:
     if (o1.value != ".") {
       instructions.emplace_back(mos6502::OpCode::jsr, o1);
+    } else {
+      // just push in 2 bytes
+      instructions.emplace_back(mos6502::OpCode::pha);
+      instructions.emplace_back(mos6502::OpCode::pha);
     }
 
     return;
