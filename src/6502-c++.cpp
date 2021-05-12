@@ -259,7 +259,7 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   // assuming A contains higher order byte and X contains lower order byte
   instructions.emplace_back(ASMLine::Type::Directive, "; BEGIN remove if next is lda");
   instructions.emplace_back(ASMLine::Type::Directive, "; set CPU flags assuming A holds the higher order byte already");
-  std::string set_flag_label = "flags_set_after_16_bit_op_" + std::to_string(instructions.size());
+  std::string set_flag_label = "fixup_16_bit_op_flags" + std::to_string(instructions.size());
   // if high order is negative, we know it's not 0 and it is negative
   instructions.emplace_back(mos6502::OpCode::bmi, Operand(Operand::Type::literal, set_flag_label));
   // if it's not 0, then branch down, we know the result is not 0 and not negative
@@ -268,8 +268,8 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   instructions.emplace_back(mos6502::OpCode::txa);
   // if low order is not negative, we know it's 0 or not 0
   instructions.emplace_back(mos6502::OpCode::bpl, Operand(Operand::Type::literal, set_flag_label));
-  // if low order byte is negative, shift right by one bit, then we'll get the proper Z/N flags
-  instructions.emplace_back(mos6502::OpCode::lsr);
+  // if low order byte is negative, just load 1, this will properly set the Z flag and leave C correct
+  instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#1"));
   instructions.emplace_back(ASMLine::Type::Label, set_flag_label);
   instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda, bcc, bcs");
 }
@@ -810,43 +810,7 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
 }
 
 
-bool fix_overwritten_flags(std::vector<mos6502> &instructions)
-{
-//  return false;
-  if (instructions.size() < 3) {
-    return false;
-  }
 
-  for (size_t op = 0; op < instructions.size(); ++op) {
-    if (instructions[op].is_comparison) {
-      auto op2 = op + 1;
-      while (op2 < instructions.size()
-             && !instructions[op2].is_comparison
-             && !instructions[op2].is_branch) {
-        ++op2;
-      }
-
-      if (op2 < instructions.size()
-          && (op2 - op) > 1
-          && instructions[op2 - 1].opcode != mos6502::OpCode::plp) {
-        if (instructions[op2].is_comparison) {
-          continue;
-        }
-
-        if (instructions[op2].is_branch) {
-          // insert a pull of processor status before the branch
-          instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op2)), mos6502(mos6502::OpCode::plp));
-          // insert a push of processor status after the comparison
-          instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op + 1)), mos6502(mos6502::OpCode::php));
-
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
 
 void run(const Personality &personality, std::istream &input)
 {
@@ -1007,13 +971,6 @@ void run(const Personality &personality, std::istream &input)
       new_instructions.erase(std::next(new_instructions.begin(), static_cast<std::ptrdiff_t>(last_instruction_loc)));
     }
   }
-
-  // it seems that with the move to AVR for the base, this
-  // fixup no longer makes sense, but I'm not going to remove it just yet
-  // until we have more complex C++ examples working
-//  while (fix_overwritten_flags(new_instructions)) {
-    // do it however many times it takes
-//  }
 
   while (optimize(new_instructions)) {
     // do it however many times it takes
