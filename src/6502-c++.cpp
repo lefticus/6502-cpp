@@ -125,6 +125,7 @@ struct AVR : ASMLine
     ret,
     rjmp,
     rol,
+    ror,
 
     sbc,
     sbci,
@@ -152,6 +153,7 @@ struct AVR : ASMLine
       if (o == "mov") { return OpCode::mov; }
       if (o == "lsl") { return OpCode::lsl; }
       if (o == "rol") { return OpCode::rol; }
+      if (o == "ror") { return OpCode::ror; }
       if (o == "rcall") { return OpCode::rcall; }
       if (o == "ld") { return OpCode::ld; }
       if (o == "sub") { return OpCode::sub; }
@@ -349,6 +351,9 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     return;
   case AVR::OpCode::rol:
     instructions.emplace_back(mos6502::OpCode::rol, personality.get_register(o1_reg_num));
+    return;
+  case AVR::OpCode::ror:
+    instructions.emplace_back(mos6502::OpCode::ror, personality.get_register(o1_reg_num));
     return;
   case AVR::OpCode::rcall:
     if (o1.value != ".") {
@@ -874,7 +879,7 @@ void run(const Personality &personality, std::istream &input)
     }
   }
 
-  std::set<std::string> used_labels{ "main" };
+  std::set<std::string> used_labels{ "main", "__udivmodhi4", "__mulhi3"};
 
   for (const auto &i : instructions) {
     if (i.type == ASMLine::Type::Instruction) {
