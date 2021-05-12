@@ -269,7 +269,7 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   // if low order byte is negative, shift right by one bit, then we'll get the proper Z/N flags
   instructions.emplace_back(mos6502::OpCode::lsr);
   instructions.emplace_back(ASMLine::Type::Label, set_flag_label);
-  instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda");
+  instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda, bcc, bcs");
 }
 
 void add_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg, const std::uint16_t value)
@@ -394,7 +394,8 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
     instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o2_reg_num));
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
-    fixup_16_bit_N_Z_flags(instructions);
+    instructions.emplace_back(mos6502::OpCode::tax);
+//    fixup_16_bit_N_Z_flags(instructions);
     return;
   }
   case AVR::OpCode::sbc: {
@@ -554,7 +555,9 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   case AVR::OpCode::cpi: {
     // note that this will leave the C flag in the 6502 borrow state, not normal carry state
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
-    instructions.emplace_back(mos6502::OpCode::cmp, Operand(o2.type, fixup_8bit_literal(o2.value)));
+    instructions.emplace_back(mos6502::OpCode::sec);
+    instructions.emplace_back(mos6502::OpCode::sbc, Operand(o2.type, fixup_8bit_literal(o2.value)));
+    instructions.emplace_back(mos6502::OpCode::tax);
     return;
   }
   case AVR::OpCode::brlo: {
@@ -606,7 +609,9 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   case AVR::OpCode::cp: {
     // note that this will leave the C flag in the 6502 borrow state, not normal carry state
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
-    instructions.emplace_back(mos6502::OpCode::cmp, personality.get_register(o2_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sec);
+    instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o2_reg_num));
+    instructions.emplace_back(mos6502::OpCode::tax);
     return;
   }
   case AVR::OpCode::cpc: {
@@ -617,6 +622,7 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
 
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
     instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o2_reg_num));
+    fixup_16_bit_N_Z_flags(instructions);
     return;
   }
 
@@ -794,6 +800,7 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
 
 bool fix_overwritten_flags(std::vector<mos6502> &instructions)
 {
+//  return false;
   if (instructions.size() < 3) {
     return false;
   }

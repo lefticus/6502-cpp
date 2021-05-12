@@ -23,8 +23,8 @@ bool optimize(std::vector<mos6502> &instructions)
   // remove unused flag-fix-up blocks
   // it might make sense in the future to only insert these if determined they are needed?
   for (size_t op = 10; op < instructions.size(); ++op) {
-    if (instructions[op].opcode == mos6502::OpCode::lda) {
-      if (instructions[op - 1].text == "; END remove if next is lda") {
+    if (instructions[op].opcode == mos6502::OpCode::lda || instructions[op].opcode == mos6502::OpCode::bcc || instructions[op].opcode == mos6502::OpCode::bcs) {
+      if (instructions[op - 1].text == "; END remove if next is lda, bcc, bcs") {
         for (size_t inner_op = op - 1; inner_op > 1; --inner_op) {
           instructions[inner_op] = mos6502(ASMLine::Type::Directive,
             "; removed unused flag fix-up: " + instructions[inner_op].to_string());
