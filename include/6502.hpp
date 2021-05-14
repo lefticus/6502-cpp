@@ -5,6 +5,9 @@
 
 struct mos6502 : ASMLine
 {
+
+
+
   enum class OpCode {
     unknown,
 

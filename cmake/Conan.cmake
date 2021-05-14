@@ -11,7 +11,7 @@ macro(run_conan)
     REQUIRES
     ${CONAN_EXTRA_REQUIRES}
     catch2/2.13.6
-    docopt.cpp/0.6.3
+    cli11/1.9.1
     fmt/7.1.3
     spdlog/1.8.5
     ctre/3.3.4

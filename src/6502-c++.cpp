@@ -12,10 +12,12 @@
 #include <string>
 #include <vector>
 
-#include "../include/6502.hpp"
-#include "../include/assembly.hpp"
-#include "../include/optimizer.hpp"
-#include "../include/personalities/c64.hpp"
+#include <CLI/CLI.hpp>
+
+#include "include/6502.hpp"
+#include "include/assembly.hpp"
+#include "include/optimizer.hpp"
+#include "include/personalities/c64.hpp"
 
 
 int to_int(const std::string_view sv)
@@ -25,18 +27,13 @@ int to_int(const std::string_view sv)
   return result;
 }
 
-int parse_8bit_literal(const std::string_view s)
-{
-  return to_int(s.substr(1));
-}
+int parse_8bit_literal(const std::string_view s) { return to_int(s.substr(1)); }
 
 std::string_view strip_lo_hi(std::string_view s)
 {
   const auto matcher = ctre::match<R"(^(lo|hi)8\((.*)\)$)">;
 
-  if (const auto results = matcher(s); results) {
-    return results.get<2>();
-  }
+  if (const auto results = matcher(s); results) { return results.get<2>(); }
 
   return s;
 }
@@ -45,9 +42,7 @@ std::string_view strip_negate(std::string_view s)
 {
   const auto matcher = ctre::match<R"(^-\((.*)\)$)">;
 
-  if (const auto results = matcher(s); results) {
-    return results.get<1>();
-  }
+  if (const auto results = matcher(s); results) { return results.get<1>(); }
 
   return s;
 }
@@ -55,26 +50,16 @@ std::string_view strip_negate(std::string_view s)
 
 std::string fixup_8bit_literal(const std::string &s)
 {
-  if (s[0] == '$') {
-    return "#" + std::to_string(static_cast<uint8_t>(parse_8bit_literal(s)));
-  }
+  if (s[0] == '$') { return "#" + std::to_string(static_cast<uint8_t>(parse_8bit_literal(s))); }
 
-  if (s.starts_with("0x")) {
-    return "#$" + s.substr(2);
-  }
+  if (s.starts_with("0x")) { return "#$" + s.substr(2); }
 
-  if (s.starts_with("lo8(")) {
-    return fmt::format("#<{}", strip_lo_hi(s));
-  }
-  if (s.starts_with("hi8(")) {
-    return fmt::format("#>{}", strip_lo_hi(s));
-  }
+  if (s.starts_with("lo8(")) { return fmt::format("#<{}", strip_lo_hi(s)); }
+  if (s.starts_with("hi8(")) { return fmt::format("#>{}", strip_lo_hi(s)); }
 
   const auto is_num = std::all_of(begin(s), end(s), [](const auto c) { return (c >= '0' && c <= '9') || c == '-'; });
 
-  if (is_num) {
-    return "#<" + s;
-  }
+  if (is_num) { return "#<" + s; }
 
   return s;
 }
@@ -145,8 +130,7 @@ struct AVR : ASMLine
   {
     switch (t) {
     case Type::Label:
-    case Type::Directive:
-      return OpCode::unknown;
+    case Type::Directive: return OpCode::unknown;
     case Type::Instruction: {
       if (o == "ldi") { return OpCode::ldi; }
       if (o == "sts") { return OpCode::sts; }
@@ -199,24 +183,16 @@ struct AVR : ASMLine
 
   static int get_register_number(const char reg_name)
   {
-    if (reg_name == 'X') {
-      return 26;
-    }
-    if (reg_name == 'Y') {
-      return 28;
-    }
-    if (reg_name == 'Z') {
-      return 30;
-    }
+    if (reg_name == 'X') { return 26; }
+    if (reg_name == 'Y') { return 28; }
+    if (reg_name == 'Z') { return 30; }
 
     throw std::runtime_error("Unknown register name");
   }
 
   static Operand parse_operand(std::string_view o)
   {
-    if (o.empty()) {
-      return Operand();
-    }
+    if (o.empty()) { return Operand(); }
 
     if (o[0] == 'r' && o.size() > 1) {
       return Operand(Operand::Type::reg, to_int(o.substr(1)));
@@ -225,11 +201,15 @@ struct AVR : ASMLine
     }
   }
 
-  AVR(const int t_line_num, std::string_view t_line_text, Type t, std::string_view t_opcode, std::string_view o1 = "", std::string_view o2 = "")
+  AVR(const int      t_line_num,
+    std::string_view t_line_text,
+    Type             t,
+    std::string_view t_opcode,
+    std::string_view o1 = "",
+    std::string_view o2 = "")
     : ASMLine(t, std::string(t_opcode)), line_num(t_line_num), line_text(std::string(t_line_text)),
       opcode(parse_opcode(t, t_opcode)), operand1(parse_operand(o1)), operand2(parse_operand(o2))
-  {
-  }
+  {}
 
   int         line_num;
   std::string line_text;
@@ -238,14 +218,21 @@ struct AVR : ASMLine
   Operand     operand2;
 };
 
-void indirect_load(std::vector<mos6502> &instructions, const std::string &from_address_low_byte, const std::string &to_address, const int offset = 0)
+void indirect_load(std::vector<mos6502> &instructions,
+  const std::string &                    from_address_low_byte,
+  const std::string &                    to_address,
+  const int                              offset = 0)
 {
   instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, fmt::format("#{}", offset)));
-  instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "(" + from_address_low_byte + "), Y"));
+  instructions.emplace_back(
+    mos6502::OpCode::lda, Operand(Operand::Type::literal, "(" + from_address_low_byte + "), Y"));
   instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, to_address));
 }
 
-void indirect_store(std::vector<mos6502> &instructions, const std::string &from_address, const std::string &to_address_low_byte, const int offset = 0)
+void indirect_store(std::vector<mos6502> &instructions,
+  const std::string &                     from_address,
+  const std::string &                     to_address_low_byte,
+  const int                               offset = 0)
 {
   instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, from_address));
   instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, fmt::format("#{}", offset)));
@@ -278,25 +265,32 @@ void add_16_bit(const Personality &personality, std::vector<mos6502> &instructio
 {
   instructions.emplace_back(mos6502::OpCode::clc);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
-  instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#" + std::to_string((value & 0xFFu))));
+  instructions.emplace_back(
+    mos6502::OpCode::adc, Operand(Operand::Type::literal, "#" + std::to_string((value & 0xFFu))));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg));
   instructions.emplace_back(mos6502::OpCode::tax);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
-  instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#" + std::to_string((value >> 8u) & 0xFFu)));
+  instructions.emplace_back(
+    mos6502::OpCode::adc, Operand(Operand::Type::literal, "#" + std::to_string((value >> 8u) & 0xFFu)));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
 
   fixup_16_bit_N_Z_flags(instructions);
 }
 
-void subtract_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg, const std::uint16_t value)
+void subtract_16_bit(const Personality &personality,
+  std::vector<mos6502> &                instructions,
+  int                                   reg,
+  const std::uint16_t                   value)
 {
   instructions.emplace_back(mos6502::OpCode::sec);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
-  instructions.emplace_back(mos6502::OpCode::sbc, Operand(Operand::Type::literal, "#" + std::to_string((value & 0xFFu))));
+  instructions.emplace_back(
+    mos6502::OpCode::sbc, Operand(Operand::Type::literal, "#" + std::to_string((value & 0xFFu))));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg));
   instructions.emplace_back(mos6502::OpCode::tax);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
-  instructions.emplace_back(mos6502::OpCode::sbc, Operand(Operand::Type::literal, "#" + std::to_string((value >> 8u) & 0xFFu)));
+  instructions.emplace_back(
+    mos6502::OpCode::sbc, Operand(Operand::Type::literal, "#" + std::to_string((value >> 8u) & 0xFFu)));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
 
   fixup_16_bit_N_Z_flags(instructions);
@@ -304,7 +298,7 @@ void subtract_16_bit(const Personality &personality, std::vector<mos6502> &instr
 
 void increment_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg)
 {
-  //instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, address_low_byte));
+  // instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, address_low_byte));
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
   instructions.emplace_back(mos6502::OpCode::clc);
   instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#1"));
@@ -314,7 +308,11 @@ void increment_16_bit(const Personality &personality, std::vector<mos6502> &inst
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
 }
 
-void translate_instruction(const Personality &personality, std::vector<mos6502> &instructions, const AVR::OpCode op, const Operand &o1, const Operand &o2)
+void translate_instruction(const Personality &personality,
+  std::vector<mos6502> &                      instructions,
+  const AVR::OpCode                           op,
+  const Operand &                             o1,
+  const Operand &                             o2)
 {
   const auto translate_register_number = [](const Operand &reg) {
     if (reg.value == "__zero_reg__") {
@@ -330,9 +328,7 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   const auto o2_reg_num = translate_register_number(o2);
 
   switch (op) {
-  case AVR::OpCode::dec:
-    instructions.emplace_back(mos6502::OpCode::dec, personality.get_register(o1_reg_num));
-    return;
+  case AVR::OpCode::dec: instructions.emplace_back(mos6502::OpCode::dec, personality.get_register(o1_reg_num)); return;
   case AVR::OpCode::ldi:
     instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal(o2.value)));
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
@@ -341,22 +337,14 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o2_reg_num));
     instructions.emplace_back(mos6502::OpCode::sta, Operand(o1.type, o1.value));
     return;
-  case AVR::OpCode::ret:
-    instructions.emplace_back(mos6502::OpCode::rts);
-    return;
+  case AVR::OpCode::ret: instructions.emplace_back(mos6502::OpCode::rts); return;
   case AVR::OpCode::mov:
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o2_reg_num));
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
     return;
-  case AVR::OpCode::lsl:
-    instructions.emplace_back(mos6502::OpCode::asl, personality.get_register(o1_reg_num));
-    return;
-  case AVR::OpCode::rol:
-    instructions.emplace_back(mos6502::OpCode::rol, personality.get_register(o1_reg_num));
-    return;
-  case AVR::OpCode::ror:
-    instructions.emplace_back(mos6502::OpCode::ror, personality.get_register(o1_reg_num));
-    return;
+  case AVR::OpCode::lsl: instructions.emplace_back(mos6502::OpCode::asl, personality.get_register(o1_reg_num)); return;
+  case AVR::OpCode::rol: instructions.emplace_back(mos6502::OpCode::rol, personality.get_register(o1_reg_num)); return;
+  case AVR::OpCode::ror: instructions.emplace_back(mos6502::OpCode::ror, personality.get_register(o1_reg_num)); return;
   case AVR::OpCode::call:
     if (o1.value != ".") {
       instructions.emplace_back(mos6502::OpCode::jsr, o1);
@@ -375,11 +363,15 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     return;
   case AVR::OpCode::ld: {
     if (o2.value == "Z" || o2.value == "X" || o2.value == "Y") {
-      indirect_load(instructions, personality.get_register(AVR::get_register_number(o2.value[0])).value, personality.get_register(o1_reg_num).value);
+      indirect_load(instructions,
+        personality.get_register(AVR::get_register_number(o2.value[0])).value,
+        personality.get_register(o1_reg_num).value);
       return;
     }
     if (o2.value == "Z+" || o2.value == "X+" || o2.value == "Y+") {
-      indirect_load(instructions, personality.get_register(AVR::get_register_number(o2.value[0])).value, personality.get_register(o1_reg_num).value);
+      indirect_load(instructions,
+        personality.get_register(AVR::get_register_number(o2.value[0])).value,
+        personality.get_register(o1_reg_num).value);
       increment_16_bit(personality, instructions, AVR::get_register_number(o2.value[0]));
       return;
     }
@@ -387,7 +379,10 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   }
   case AVR::OpCode::ldd: {
     if (o2.value[1] == '+') {
-      indirect_load(instructions, personality.get_register(AVR::get_register_number(o2.value[0])).value, personality.get_register(o1_reg_num).value, to_int(o2.value.substr(2)));
+      indirect_load(instructions,
+        personality.get_register(AVR::get_register_number(o2.value[0])).value,
+        personality.get_register(o1_reg_num).value,
+        to_int(o2.value.substr(2)));
       return;
     }
 
@@ -395,7 +390,10 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   }
   case AVR::OpCode::std: {
     if (o1.value[1] == '+') {
-      indirect_store(instructions, personality.get_register(o2_reg_num).value, personality.get_register(AVR::get_register_number(o1.value[0])).value, to_int(o1.value.substr(2)));
+      indirect_store(instructions,
+        personality.get_register(o2_reg_num).value,
+        personality.get_register(AVR::get_register_number(o1.value[0])).value,
+        to_int(o1.value.substr(2)));
       return;
     }
 
@@ -407,7 +405,7 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o2_reg_num));
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
     instructions.emplace_back(mos6502::OpCode::tax);
-//    fixup_16_bit_N_Z_flags(instructions);
+    //    fixup_16_bit_N_Z_flags(instructions);
     return;
   }
   case AVR::OpCode::sbc: {
@@ -453,11 +451,15 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   }
   case AVR::OpCode::st: {
     if (o1.value == "Z" || o1.value == "Y" || o1.value == "X") {
-      indirect_store(instructions, personality.get_register(o2_reg_num).value, personality.get_register(AVR::get_register_number(o1.value[0])).value);
+      indirect_store(instructions,
+        personality.get_register(o2_reg_num).value,
+        personality.get_register(AVR::get_register_number(o1.value[0])).value);
       return;
     }
     if (o1.value == "Z+" || o1.value == "Y+" || o1.value == "X+") {
-      indirect_store(instructions, personality.get_register(o2_reg_num).value, personality.get_register(AVR::get_register_number(o1.value[0])).value);
+      indirect_store(instructions,
+        personality.get_register(o2_reg_num).value,
+        personality.get_register(AVR::get_register_number(o1.value[0])).value);
       increment_16_bit(personality, instructions, AVR::get_register_number(o1.value[0]));
       return;
     }
@@ -493,7 +495,8 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     return;
   }
   case AVR::OpCode::sbrc: {
-    instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (to_int(o2.value))))));
+    instructions.emplace_back(
+      mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (to_int(o2.value))))));
     instructions.emplace_back(mos6502::OpCode::bit, personality.get_register(o1_reg_num));
     std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
     instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
@@ -501,7 +504,8 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
     return;
   }
   case AVR::OpCode::sbrs: {
-    instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (to_int(o2.value.c_str()))))));
+    instructions.emplace_back(mos6502::OpCode::lda,
+      Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (to_int(o2.value.c_str()))))));
     instructions.emplace_back(mos6502::OpCode::bit, personality.get_register(o1_reg_num));
     std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
     instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_label_name));
@@ -682,8 +686,7 @@ void translate_instruction(const Personality &personality, std::vector<mos6502> 
   }
 
   case AVR::OpCode::breq: {
-    if (o1.value == ".+2")
-    {
+    if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
       std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
       instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
@@ -734,9 +737,7 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
           }
         }
 
-        if (!zeros.empty()) {
-          instructions.emplace_back(ASMLine::Type::Directive, zeros);
-        }
+        if (!zeros.empty()) { instructions.emplace_back(ASMLine::Type::Directive, zeros); }
       } else if (from_instruction.text[0] == ';') {
         // it's a comment
         instructions.emplace_back(ASMLine::Type::Directive, from_instruction.text);
@@ -748,23 +749,25 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
       const auto head = instructions.size();
 
       try {
-        translate_instruction(personality, instructions, from_instruction.opcode, from_instruction.operand1, from_instruction.operand2);
+        translate_instruction(
+          personality, instructions, from_instruction.opcode, from_instruction.operand1, from_instruction.operand2);
       } catch (const std::exception &e) {
-        instructions.emplace_back(ASMLine::Type::Directive, "; Unhandled opcode: '" + from_instruction.text + "' " + e.what());
-        spdlog::error("[{}]: Unhandled instruction: '{}': {}", from_instruction.line_num, from_instruction.line_text, e.what());
+        instructions.emplace_back(
+          ASMLine::Type::Directive, "; Unhandled opcode: '" + from_instruction.text + "' " + e.what());
+        spdlog::error(
+          "[{}]: Unhandled instruction: '{}': {}", from_instruction.line_num, from_instruction.line_text, e.what());
       }
 
       auto text = from_instruction.line_text;
-      if (text[0] == '\t') {
-        text.erase(0, 1);
-      }
-      for_each(std::next(instructions.begin(), static_cast<std::ptrdiff_t>(head)), instructions.end(), [text](auto &ins) {
-        ins.comment = text;
-      });
+      if (text[0] == '\t') { text.erase(0, 1); }
+      for_each(std::next(instructions.begin(), static_cast<std::ptrdiff_t>(head)),
+        instructions.end(),
+        [text](auto &ins) { ins.comment = text; });
       return;
     }
   } catch (const std::exception &e) {
-    spdlog::error("[{}]: Unhandled instruction: '{}': {}", from_instruction.line_num, from_instruction.line_text, e.what());
+    spdlog::error(
+      "[{}]: Unhandled instruction: '{}': {}", from_instruction.line_num, from_instruction.line_text, e.what());
   }
 }
 
@@ -773,16 +776,15 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
 {
   std::map<std::string, size_t> labels;
   for (size_t op = 0; op < instructions.size(); ++op) {
-    if (instructions[op].type == ASMLine::Type::Label) {
-      labels[instructions[op].text] = op;
-    }
+    if (instructions[op].type == ASMLine::Type::Label) { labels[instructions[op].text] = op; }
   }
 
   for (size_t op = 0; op < instructions.size(); ++op) {
-    if (instructions[op].is_branch && std::abs(static_cast<int>(labels[instructions[op].op.value]) - static_cast<int>(op)) * 3 > 255) {
+    if (instructions[op].is_branch
+        && std::abs(static_cast<int>(labels[instructions[op].op.value]) - static_cast<int>(op)) * 3 > 255) {
       ++branch_patch_count;
       const auto going_to = instructions[op].op.value;
-      const auto new_pos  = "patch_" + std::to_string(branch_patch_count);
+      const auto new_pos = "patch_" + std::to_string(branch_patch_count);
       // uh-oh too long of a branch, have to convert this to a jump...
 
       std::map<mos6502::OpCode, mos6502::OpCode> branch_mapping;
@@ -796,9 +798,11 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
 
       if (mapping != branch_mapping.end()) {
         const auto comment = instructions[op].comment;
-        instructions[op]   = mos6502(mapping->second, Operand(Operand::Type::literal, new_pos));
-        instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op + 1)), mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
-        instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op + 2)), mos6502(ASMLine::Type::Label, new_pos));
+        instructions[op] = mos6502(mapping->second, Operand(Operand::Type::literal, new_pos));
+        instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op + 1)),
+          mos6502(mos6502::OpCode::jmp, Operand(Operand::Type::literal, going_to)));
+        instructions.insert(std::next(std::begin(instructions), static_cast<std::ptrdiff_t>(op + 2)),
+          mos6502(ASMLine::Type::Label, new_pos));
         instructions[op].comment = instructions[op + 1].comment = instructions[op + 2].comment = comment;
         return true;
       }
@@ -810,9 +814,7 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
 }
 
 
-
-
-void run(const Personality &personality, std::istream &input)
+std::vector<mos6502> run(const Personality &personality, std::istream &input)
 {
   std::regex Comment(R"(\s*(\#|;)(.*))");
   std::regex Label(R"(^\s*(\S+):.*)");
@@ -839,7 +841,8 @@ void run(const Personality &personality, std::istream &input)
       } else if (std::regex_match(line, match, Directive)) {
         instructions.emplace_back(lineno, line, ASMLine::Type::Directive, match[1].str());
       } else if (std::regex_match(line, match, BinaryInstruction)) {
-        instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1].str(), match[2].str(), match[3].str());
+        instructions.emplace_back(
+          lineno, line, ASMLine::Type::Instruction, match[1].str(), match[2].str(), match[3].str());
       } else if (std::regex_match(line, match, UnaryInstruction)) {
         instructions.emplace_back(lineno, line, ASMLine::Type::Instruction, match[1].str(), match[2].str());
       } else if (std::regex_match(line, match, Instruction)) {
@@ -857,20 +860,16 @@ void run(const Personality &personality, std::istream &input)
   std::set<std::string> labels;
 
   for (const auto &i : instructions) {
-    if (i.type == ASMLine::Type::Label) {
-      labels.insert(i.text);
-    }
+    if (i.type == ASMLine::Type::Label) { labels.insert(i.text); }
   }
 
-  std::set<std::string> used_labels{ "main", "__udivmodhi4", "__mulhi3"};
+  std::set<std::string> used_labels{ "main", "__udivmodhi4", "__mulhi3" };
 
   for (const auto &i : instructions) {
     if (i.type == ASMLine::Type::Instruction) {
 
       const auto check_label = [&](const std::string &value) {
-        if (labels.count(value) != 0) {
-          used_labels.insert(value);
-        }
+        if (labels.count(value) != 0) { used_labels.insert(value); }
       };
 
       check_label(i.operand1.value);
@@ -880,27 +879,25 @@ void run(const Personality &personality, std::istream &input)
     }
   }
 
-  const auto new_labels =
-    [&used_labels]() {
-      std::map<std::string, std::string> result;
-      for (const auto &l : used_labels) {
-//        auto newl = l;
-//        std::transform(newl.begin(), newl.end(), newl.begin(), [](const auto c) { return std::tolower(c); });
-//        newl.erase(std::remove_if(newl.begin(), newl.end(), [](const auto c) { return !std::isalnum(c); }), std::end(newl));
+  const auto new_labels = [&used_labels]() {
+    std::map<std::string, std::string> result;
+    for (const auto &l : used_labels) {
+      //        auto newl = l;
+      //        std::transform(newl.begin(), newl.end(), newl.begin(), [](const auto c) { return std::tolower(c); });
+      //        newl.erase(std::remove_if(newl.begin(), newl.end(), [](const auto c) { return !std::isalnum(c); }),
+      //        std::end(newl));
 
-        // strip just first \.
-        if (l[0] == '.') {
-          result.emplace(std::make_pair(l, l.substr(1)));
-        } else {
-          result.emplace(std::make_pair(l, l));
-        }
+      // strip just first \.
+      if (l[0] == '.') {
+        result.emplace(std::make_pair(l, l.substr(1)));
+      } else {
+        result.emplace(std::make_pair(l, l));
       }
-      return result;
-    }();
+    }
+    return result;
+  }();
 
-  for (const auto &label : new_labels) {
-    spdlog::trace("used label: '{}':'{}'", label.first, label.second);
-  }
+  for (const auto &label : new_labels) { spdlog::trace("used label: '{}':'{}'", label.first, label.second); }
 
   for (auto &i : instructions) {
     if (i.type == ASMLine::Type::Label) {
@@ -918,21 +915,15 @@ void run(const Personality &personality, std::istream &input)
 
     if (i.operand2.value.starts_with("lo8(") || i.operand2.value.starts_with("hi8(")) {
       const auto potential_label = strip_lo_hi(i.operand2.value);
-      const auto itr1            = new_labels.find(std::string{ potential_label });
-      if (itr1 != new_labels.end()) {
-        i.operand2.value.replace(4, potential_label.size(), itr1->second);
-      }
+      const auto itr1 = new_labels.find(std::string{ potential_label });
+      if (itr1 != new_labels.end()) { i.operand2.value.replace(4, potential_label.size(), itr1->second); }
     }
 
     const auto itr1 = new_labels.find(i.operand1.value);
-    if (itr1 != new_labels.end()) {
-      i.operand1.value = itr1->second;
-    }
+    if (itr1 != new_labels.end()) { i.operand1.value = itr1->second; }
 
     const auto itr2 = new_labels.find(i.operand2.value);
-    if (itr2 != new_labels.end()) {
-      i.operand2.value = itr2->second;
-    }
+    if (itr2 != new_labels.end()) { i.operand2.value = itr2->second; }
   }
 
 
@@ -951,23 +942,23 @@ void run(const Personality &personality, std::istream &input)
     to_mos6502(personality, i, new_instructions);
 
     // intentionally copy so we don't invalidate the reference
-    const auto last_instruction     = new_instructions.back();
+    const auto last_instruction = new_instructions.back();
     const auto last_instruction_loc = new_instructions.size() - 1;
 
-    if (instructions_to_skip == 1) {
-      new_instructions.emplace_back(ASMLine::Type::Label, next_label_name);
-    }
+    if (instructions_to_skip == 1) { new_instructions.emplace_back(ASMLine::Type::Label, next_label_name); }
 
     --instructions_to_skip;
 
-    if (last_instruction.type == ASMLine::Type::Directive && last_instruction.text.starts_with("skip_next_instruction")) {
+    if (last_instruction.type == ASMLine::Type::Directive
+        && last_instruction.text.starts_with("skip_next_instruction")) {
       instructions_to_skip = 1;
-      next_label_name      = last_instruction.text;
+      next_label_name = last_instruction.text;
       new_instructions.erase(std::next(new_instructions.begin(), static_cast<std::ptrdiff_t>(last_instruction_loc)));
     }
-    if (last_instruction.type == ASMLine::Type::Directive && last_instruction.text.starts_with("skip_next_2_instructions")) {
+    if (last_instruction.type == ASMLine::Type::Directive
+        && last_instruction.text.starts_with("skip_next_2_instructions")) {
       instructions_to_skip = 2;
-      next_label_name      = last_instruction.text;
+      next_label_name = last_instruction.text;
       new_instructions.erase(std::next(new_instructions.begin(), static_cast<std::ptrdiff_t>(last_instruction_loc)));
     }
   }
@@ -981,27 +972,86 @@ void run(const Personality &personality, std::istream &input)
     // do it however many times it takes
   }
 
+  return new_instructions;
 
-  for (const auto &i : new_instructions) {
-    std::cout << i.to_string() << '\n';
-  }
 }
+
+enum struct Target { C64 };
 
 int main(const int argc, const char **argv)
 {
-  std::ifstream input_file;
+  const std::map<std::string, Target> targets{ { "C64", Target::C64 } };
+  CLI::App                            app{ "C++ Compiler for 6502 processors" };
 
-  std::istream &input = [&]() -> std::istream & {
-    if (argc > 1) {
-      input_file.open(argv[1]);
-      return input_file;
-    } else {
-      return std::cin;
-    }
-  }();
+  std::filesystem::path filename{};
+  Target                target{ Target::C64 };
+
+  app.add_option("-f,--file", filename, "C++ file to compile")->required(true);
+  app.add_option("-t,--target", target, "6502 - based system to target")
+    ->required(true)
+    ->transform(CLI::CheckedTransformer(targets, CLI::ignore_case));
+
+
+  CLI11_PARSE(app, argc, argv)
+
+  const std::string_view include_directories = "-I ~/avr-libstdcpp/include/";
+  const std::string_view warning_flags = "-Wall -Wextra";
+  const std::string_view avr = "avr3";
+  const std::string_view optimization_level = "3";
+
+  const auto make_output_file_name = [](auto input_filename, const auto &new_extension) {
+    input_filename.replace_extension(new_extension);
+    return std::filesystem::current_path() / input_filename.filename();
+  };
+
+  const auto avr_output_file = make_output_file_name(filename, "avr.asm");
+  const auto mos6502_output_file = make_output_file_name(filename, "6502.asm");
+  const auto program_output_file = make_output_file_name(filename, "prg");
+
+  const std::string gcc_command = fmt::format(
+    "avr-gcc -fverbose-asm -c -o {outfile} -S {warning_flags} -std=c++20 -mtiny-stack "
+    "-mmcu={avr} -O{optimization} {include_dirs} {infile}",
+    fmt::arg("outfile", avr_output_file.generic_string()),
+    fmt::arg("warning_flags", warning_flags),
+    fmt::arg("avr", avr),
+    fmt::arg("optimization", optimization_level),
+    fmt::arg("include_dirs", include_directories),
+    fmt::arg("infile", filename.generic_string()));
+
+  spdlog::info("Executing gcc: `{}`", gcc_command);
+
+  const auto result = std::system(gcc_command.c_str());
+
+  if (result != EXIT_SUCCESS) {
+    spdlog::critical("compile failed");
+    return result;
+  }
+
+
+  std::ifstream input(avr_output_file);
+
 
   C64 personality;
 
-  std::cout << "; AVR Mode\n";
-  run(personality, input);
+  const auto new_instructions = run(personality, input);
+
+  {
+    // make sure file is closed before we try to re-open it with xa
+    std::ofstream mos6502_output(mos6502_output_file, std::ofstream::trunc);
+    for (const auto &i : new_instructions) { mos6502_output << i.to_string() << '\n'; }
+  }
+
+  const std::string xa_command = fmt::format(
+    "xa -O PETSCREEN -M -o {outfile} {infile}",
+    fmt::arg("infile", mos6502_output_file.generic_string()),
+    fmt::arg("outfile", program_output_file.generic_string()));
+
+  spdlog::info("Executing xa: `{}`", xa_command);
+
+  const auto xa_result = std::system(xa_command.c_str());
+
+  if (xa_result != EXIT_SUCCESS) {
+    spdlog::critical("assembly failed");
+    return result;
+  }
 }
