@@ -677,7 +677,7 @@ void translate_instruction(const Personality &personality,
     }
 
     if (o2.value == "__SP_H__") {
-      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "$01"));
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#$01"));
       instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
       return;
     }
@@ -963,7 +963,7 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
     }
   }
 
-  while (optimize(new_instructions)) {
+  while (optimize(new_instructions, personality)) {
     // do it however many times it takes
   }
 
@@ -973,7 +973,6 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
   }
 
   return new_instructions;
-
 }
 
 enum struct Target { C64 };
@@ -1041,8 +1040,7 @@ int main(const int argc, const char **argv)
     for (const auto &i : new_instructions) { mos6502_output << i.to_string() << '\n'; }
   }
 
-  const std::string xa_command = fmt::format(
-    "xa -O PETSCREEN -M -o {outfile} {infile}",
+  const std::string xa_command = fmt::format("xa -O PETSCREEN -M -o {outfile} {infile}",
     fmt::arg("infile", mos6502_output_file.generic_string()),
     fmt::arg("outfile", program_output_file.generic_string()));
 
