@@ -1012,9 +1012,9 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
     }
   }
 
-//  while (optimize(new_instructions, personality)) {
+  while (optimize(new_instructions, personality)) {
     // do it however many times it takes
-//  }
+  }
 
   int branch_patch_count = 0;
   while (fix_long_branches(new_instructions, branch_patch_count)) {
