@@ -518,7 +518,7 @@ void translate_instruction(const Personality &personality,
   }
   case AVR::OpCode::cpse: {
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
-    instructions.emplace_back(mos6502::OpCode::bit, personality.get_register(o2_reg_num));
+    instructions.emplace_back(mos6502::OpCode::cmp, personality.get_register(o2_reg_num));
     std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
     instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
     instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
@@ -1059,7 +1059,7 @@ int main(const int argc, const char **argv)
 
   const std::string gcc_command = fmt::format(
     "avr-gcc -fverbose-asm -c -o {outfile} -S {warning_flags} -std=c++20 -mtiny-stack "
-    "-mmcu={avr} -O{optimization} -fno-tree-loop-vectorize {include_dirs} {infile}",
+    "-mmcu={avr} -O{optimization} {include_dirs} {infile}",
     fmt::arg("outfile", avr_output_file.generic_string()),
     fmt::arg("warning_flags", warning_flags),
     fmt::arg("avr", avr),
