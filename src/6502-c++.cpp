@@ -48,6 +48,17 @@ std::string_view strip_negate(std::string_view s)
 }
 
 
+std::string_view strip_offset(std::string_view s)
+{
+  const auto matcher = ctre::match<R"(^(.*)(\+|-)[0-9]+$)">;
+
+  if (const auto results = matcher(s); results) { return results.get<1>(); }
+
+  return s;
+}
+
+
+
 std::string fixup_8bit_literal(const std::string &s)
 {
   if (s[0] == '$') { return "#" + std::to_string(static_cast<uint8_t>(parse_8bit_literal(s))); }
@@ -92,6 +103,8 @@ struct AVR : ASMLine
     eor,
 
     in,
+    inc,
+    icall,
 
     ld,
     ldd,
@@ -140,6 +153,7 @@ struct AVR : ASMLine
       if (o == "rol") { return OpCode::rol; }
       if (o == "ror") { return OpCode::ror; }
       if (o == "rcall") { return OpCode::rcall; }
+      if (o == "icall") { return OpCode::icall; }
       if (o == "call") { return OpCode::call; }
       if (o == "ld") { return OpCode::ld; }
       if (o == "sub") { return OpCode::sub; }
@@ -176,6 +190,7 @@ struct AVR : ASMLine
       if (o == "breq") { return OpCode::breq; }
       if (o == "in") { return OpCode::in; }
       if (o == "out") { return OpCode::out; }
+      if (o == "inc") { return OpCode::inc; }
     }
     }
     throw std::runtime_error(fmt::format("Unknown opcode: {}", o));
@@ -251,7 +266,7 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   instructions.emplace_back(mos6502::OpCode::bmi, Operand(Operand::Type::literal, set_flag_label));
   // if it's not 0, then branch down, we know the result is not 0 and not negative
   instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, set_flag_label));
-  // if the higher order byte is 0, test the lower order byte, which was saved for us in Y
+  // if the higher order byte is 0, test the lower order byte, which was saved for us in X
   instructions.emplace_back(mos6502::OpCode::txa);
   // if low order is not negative, we know it's 0 or not 0
   instructions.emplace_back(mos6502::OpCode::bpl, Operand(Operand::Type::literal, set_flag_label));
@@ -351,6 +366,17 @@ void translate_instruction(const Personality &personality,
       return;
     }
     throw std::runtime_error("Unhandled call");
+  case AVR::OpCode::icall: 
+    {
+      std::string new_label_name = "return_from_icall_" + std::to_string(instructions.size());
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, fmt::format("#>({}-1)", new_label_name)));
+      instructions.emplace_back(mos6502::OpCode::pha);
+      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, fmt::format("#<({}-1)", new_label_name)));
+      instructions.emplace_back(mos6502::OpCode::pha);
+      instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, "(" + personality.get_register(AVR::get_register_number('Z')).value + ")"));
+      instructions.emplace_back(ASMLine::Type::Label, new_label_name);
+      return;
+    }
   case AVR::OpCode::rcall:
     if (o1.value != ".") {
       instructions.emplace_back(mos6502::OpCode::jsr, o1);
@@ -426,6 +452,10 @@ void translate_instruction(const Personality &personality,
     fixup_16_bit_N_Z_flags(instructions);
     return;
   }
+  case AVR::OpCode::inc: 
+    instructions.emplace_back(mos6502::OpCode::inc, personality.get_register(o1_reg_num));
+    return;
+
   case AVR::OpCode::subi: {
     // to do: deal with Carry bit (and other flags) nonsense from AVR
     // if |x| < |y| -> x-y +carry
@@ -719,8 +749,19 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
     case ASMLine::Type::Directive:
       if (from_instruction.text.starts_with(".string")) {
         instructions.emplace_back(ASMLine::Type::Directive, ".asc " + from_instruction.text.substr(7));
+      } else if (from_instruction.text.starts_with(".word")) {
+
+        const auto matcher = ctre::match<R"(\s*.word\s*gs\((.*)\))">;
+
+        if (const auto results = matcher(from_instruction.text); results) {
+          const auto matched_gs = results.get<1>().to_string();
+          instructions.emplace_back(ASMLine::Type::Directive, ".word " + matched_gs);
+        } else {
+          spdlog::warn("Unknown .word directive");
+        }
+
       } else if (from_instruction.text.starts_with(".byte")) {
-        instructions.emplace_back(ASMLine::Type::Directive, ".byt " + from_instruction.text.substr(5));
+        instructions.emplace_back(ASMLine::Type::Directive, ".byt <" + from_instruction.text.substr(6));
       } else if (from_instruction.text.starts_with(".zero")) {
         const auto count = std::stoull(&*std::next(from_instruction.text.begin(), 6), nullptr, 10);
 
@@ -866,16 +907,24 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
   std::set<std::string> used_labels{ "main", "__udivmodhi4", "__mulhi3" };
 
   for (const auto &i : instructions) {
-    if (i.type == ASMLine::Type::Instruction) {
+    const auto check_label = [&](const std::string &value) {
+      if (labels.count(value) != 0) { used_labels.insert(value); }
+    };
 
-      const auto check_label = [&](const std::string &value) {
-        if (labels.count(value) != 0) { used_labels.insert(value); }
-      };
+    if (i.type == ASMLine::Type::Instruction) {
 
       check_label(i.operand1.value);
       check_label(i.operand2.value);
-      check_label(std::string{ strip_negate(strip_lo_hi(i.operand1.value)) });
-      check_label(std::string{ strip_negate(strip_lo_hi(i.operand2.value)) });
+      check_label(std::string{ strip_offset(strip_negate(strip_lo_hi(i.operand1.value))) });
+      check_label(std::string{ strip_offset(strip_negate(strip_lo_hi(i.operand2.value))) });
+    } else if (i.type == ASMLine::Type::Directive) {
+      const auto matcher = ctre::match<R"(\s*.word\s*gs\((.*)\))">;
+
+      if (const auto results = matcher(i.text); results) {
+        const auto matched_gs = results.get<1>().to_string();
+        spdlog::trace("matched gs: '{}' from '{}'", matched_gs, i.text);
+        check_label(matched_gs);
+      }
     }
   }
 
@@ -963,9 +1012,9 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
     }
   }
 
-  while (optimize(new_instructions, personality)) {
+//  while (optimize(new_instructions, personality)) {
     // do it however many times it takes
-  }
+//  }
 
   int branch_patch_count = 0;
   while (fix_long_branches(new_instructions, branch_patch_count)) {
@@ -979,6 +1028,7 @@ enum struct Target { C64 };
 
 int main(const int argc, const char **argv)
 {
+  spdlog::set_level(spdlog::level::trace);
   const std::map<std::string, Target> targets{ { "C64", Target::C64 } };
   CLI::App                            app{ "C++ Compiler for 6502 processors" };
 
@@ -1009,7 +1059,7 @@ int main(const int argc, const char **argv)
 
   const std::string gcc_command = fmt::format(
     "avr-gcc -fverbose-asm -c -o {outfile} -S {warning_flags} -std=c++20 -mtiny-stack "
-    "-mmcu={avr} -O{optimization} {include_dirs} {infile}",
+    "-mmcu={avr} -O{optimization} -fno-tree-loop-vectorize {include_dirs} {infile}",
     fmt::arg("outfile", avr_output_file.generic_string()),
     fmt::arg("warning_flags", warning_flags),
     fmt::arg("avr", avr),
