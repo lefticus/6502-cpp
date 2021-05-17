@@ -586,11 +586,11 @@ void translate_instruction(const Personality &personality,
     return;
   }
   case AVR::OpCode::com: {
-    // We're doing this in the same way the AVR does it, to make sure the C flag is set properly
-    instructions.emplace_back(mos6502::OpCode::clc);
+    // We're doing this in the same way the AVR does it, to make sure the C flag is set properly, it expects C to be set
     instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#$FF"));
-    instructions.emplace_back(mos6502::OpCode::sbc, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::eor, personality.get_register(o1_reg_num));
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sec);
     return;
   }
   case AVR::OpCode::clr: {
