@@ -3,7 +3,7 @@
 #include <fmt/format.h>
 #include <fstream>
 
-enum struct OptimizationLevel : char { O0='0', O1='1', O2='2', O3='3', Os='s' };
+enum struct OptimizationLevel : char { O0 = '0', O1 = '1', O2 = '2', O3 = '3', Os = 's' };
 
 
 std::vector<std::uint8_t> execute_c64_program(const std::string_view &name,
@@ -19,7 +19,7 @@ std::vector<std::uint8_t> execute_c64_program(const std::string_view &name,
   REQUIRE(mos6502_cpp_executable != nullptr);
 
   const auto optimization_level = [&]() -> std::string_view {
-    switch(o) {
+    switch (o) {
     case OptimizationLevel::Os: return "-Os";
     case OptimizationLevel::O1: return "-O1";
     case OptimizationLevel::O2: return "-O2";
@@ -30,7 +30,7 @@ std::vector<std::uint8_t> execute_c64_program(const std::string_view &name,
     return "unknown";
   }();
   const auto source_filename{ fmt::format("{}{}.cpp", name, optimization_level) };
-  const auto vice_script_filename{fmt::format("{}{}-vice_script", name, optimization_level)};
+  const auto vice_script_filename{ fmt::format("{}{}-vice_script", name, optimization_level) };
   const auto prg_filename{ fmt::format("{}{}.prg", name, optimization_level) };
   const auto ram_dump_filename{ fmt::format("{}{}-ram_dump", name, optimization_level) };
 
@@ -58,8 +58,11 @@ quit
   }
 
 
-  REQUIRE(system(fmt::format("{} -f {} -t C64 {}", mos6502_cpp_executable, source_filename, optimization_level).c_str()) == EXIT_SUCCESS);
-  REQUIRE(system(fmt::format("xvfb-run -d {} +saveres -warp -moncommands {}", x64_executable, vice_script_filename).c_str()) == EXIT_SUCCESS);
+  REQUIRE(system(fmt::format("{} -f {} -t C64 {}", mos6502_cpp_executable, source_filename, optimization_level).c_str())
+          == EXIT_SUCCESS);
+  REQUIRE(
+    system(fmt::format("xvfb-run -d {} +vsync -sounddev dummy +saveres -warp -moncommands {}", x64_executable, vice_script_filename).c_str())
+    == EXIT_SUCCESS);
 
   std::ifstream memory_dump(ram_dump_filename, std::ios::binary);
 
@@ -71,7 +74,14 @@ quit
   return return_value;
 }
 
-TEST_CASE("Can write to screen memory")
+TEMPLATE_TEST_CASE_SIG("Can write to screen memory",
+  "",
+  ((OptimizationLevel O), O),
+  OptimizationLevel::Os,
+  OptimizationLevel::O0,
+  OptimizationLevel::O1,
+  OptimizationLevel::O2,
+  OptimizationLevel::O3)
 {
   constexpr static std::string_view program =
     R"(
@@ -81,14 +91,20 @@ int main()
 }
 )";
 
-  const auto o_level = GENERATE(OptimizationLevel::O0, OptimizationLevel::O1, OptimizationLevel::O2, OptimizationLevel::O3, OptimizationLevel::Os);
-  const auto result = execute_c64_program("write_to_screen_memory", program, o_level, 0x400, 0x400);
+  const auto result = execute_c64_program("write_to_screen_memory", program, O, 0x400, 0x400);
 
   REQUIRE(result.size() == 1);
   CHECK(result[0] == 10);
 }
 
-TEST_CASE("Can write to screen memory via function call")
+TEMPLATE_TEST_CASE_SIG("Can write to screen memory via function call",
+  "",
+  ((OptimizationLevel O), O),
+  OptimizationLevel::Os,
+  OptimizationLevel::O0,
+  OptimizationLevel::O1,
+  OptimizationLevel::O2,
+  OptimizationLevel::O3)
 {
   constexpr static std::string_view program =
     R"(
@@ -104,12 +120,10 @@ int main()
 }
 )";
 
-  const auto o_level = GENERATE(
-    OptimizationLevel::O0, OptimizationLevel::O1, OptimizationLevel::O2, OptimizationLevel::O3, OptimizationLevel::Os);
-  const auto result = execute_c64_program("write_to_screen_memory_via_function", program, o_level, 0x400, 0x401);
+  const auto result = execute_c64_program("write_to_screen_memory_via_function", program, O, 0x400, 0x401);
 
   REQUIRE(result.size() == 2);
 
-    CHECK(result[0] == 10);
-    CHECK(result[1] == 11);
+  CHECK(result[0] == 10);
+  CHECK(result[1] == 11);
 }
