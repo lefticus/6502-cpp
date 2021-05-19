@@ -59,7 +59,7 @@ quit
 
 
   REQUIRE(system(fmt::format("{} -f {} -t C64 {}", mos6502_cpp_executable, source_filename, optimization_level).c_str()) == EXIT_SUCCESS);
-  REQUIRE(system(fmt::format("xvfb-run {} +saveres -warp -moncommands {}", x64_executable, vice_script_filename).c_str()) == EXIT_SUCCESS);
+  REQUIRE(system(fmt::format("xvfb-run -d {} +saveres -warp -moncommands {}", x64_executable, vice_script_filename).c_str()) == EXIT_SUCCESS);
 
   std::ifstream memory_dump(ram_dump_filename, std::ios::binary);
 
@@ -94,7 +94,7 @@ TEST_CASE("Can write to screen memory via function call")
     R"(
 
 void poke(unsigned int location, unsigned char value) {
-  *reinterpret_cast<volatile unsigned char *>(location) = 10;
+  *reinterpret_cast<volatile unsigned char *>(location) = value;
 }
 
 int main()
@@ -109,7 +109,7 @@ int main()
   const auto result = execute_c64_program("write_to_screen_memory_via_function", program, o_level, 0x400, 0x401);
 
   REQUIRE(result.size() == 2);
-  CHECK(result[0] == 10);
-  CHECK(result[0] == 11);
 
+    CHECK(result[0] == 10);
+    CHECK(result[1] == 11);
 }

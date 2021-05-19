@@ -114,6 +114,8 @@ struct AVR : ASMLine
 
     mov,
 
+    nop,
+
     out,
 
     pop,
@@ -190,6 +192,7 @@ struct AVR : ASMLine
       if (o == "in") { return OpCode::in; }
       if (o == "out") { return OpCode::out; }
       if (o == "inc") { return OpCode::inc; }
+      if (o == "nop") { return OpCode::nop; }
     }
     }
     throw std::runtime_error(fmt::format("Unknown opcode: {}", o));
@@ -726,6 +729,10 @@ void translate_instruction(const Personality &personality,
       return;
     }
   }
+  case AVR::OpCode::nop: {
+    instructions.emplace_back(mos6502::OpCode::nop);
+    return;
+  }
   case AVR::OpCode::unknown: {
     throw std::runtime_error("Could not translate 'unknown' instruction");
   }
@@ -955,8 +962,8 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
         try {
           i.text = new_labels.at(i.text);
         } catch (...) {
-          spdlog::error("Error looking up label name: '{}'", i.text);
-          throw;
+          spdlog::warn("Unused label: '{}', consider making function static until we remove unused functions", i.text);
+
         }
       }
     }

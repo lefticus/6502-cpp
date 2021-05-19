@@ -5,9 +5,6 @@
 
 struct mos6502 : ASMLine
 {
-
-
-
   enum class OpCode {
     unknown,
 
@@ -40,6 +37,8 @@ struct mos6502 : ASMLine
     ldx,
     ldy,
     lsr,
+
+    nop,
 
     ORA,
 
@@ -92,6 +91,7 @@ struct mos6502 : ASMLine
     case OpCode::ldx:
     case OpCode::ldy:
     case OpCode::lsr:
+    case OpCode::nop:
     case OpCode::ORA:
     case OpCode::pha:
     case OpCode::php:
@@ -144,6 +144,7 @@ struct mos6502 : ASMLine
     case OpCode::ldx:
     case OpCode::ldy:
     case OpCode::lsr:
+    case OpCode::nop:
     case OpCode::ORA:
     case OpCode::pha:
     case OpCode::php:
@@ -229,6 +230,7 @@ struct mos6502 : ASMLine
     case OpCode::bpl: return "bpl";
     case OpCode::bcc: return "bcc";
     case OpCode::bcs: return "bcs";
+    case OpCode::nop: return "nop";
     case OpCode::unknown: return "";
     }
 
