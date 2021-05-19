@@ -6,7 +6,7 @@ else()
 endif()
 
 add_library(catch_main STATIC catch_main.cpp)
-target_link_libraries(catch_main PUBLIC CONAN_PKG::catch2)
+target_link_libraries(catch_main PUBLIC CONAN_PKG::catch2 CONAN_PKG::fmt)
 target_link_libraries(catch_main PRIVATE project_options)
 
 add_executable(tests tests.cpp)
@@ -17,15 +17,19 @@ target_link_libraries(tests PRIVATE project_warnings project_options catch_main)
 catch_discover_tests(
   tests
   TEST_PREFIX
-  "unittests."
+  "approval_tests."
+  PROPERTIES
+  ENVIRONMENT CXX_6502=$<TARGET_FILE:6502-c++> ENVIRONMENT X64=/usr/bin/x64
   REPORTER
   xml
   OUTPUT_DIR
   .
   OUTPUT_PREFIX
-  "unittests."
+  "approval_tests."
   OUTPUT_SUFFIX
-  .xml)
+  .xml
+
+)
 
 # Add a file containing a set of constexpr tests
 add_executable(constexpr_tests constexpr_tests.cpp)

@@ -58,7 +58,6 @@ std::string_view strip_offset(std::string_view s)
 }
 
 
-
 std::string fixup_8bit_literal(const std::string &s)
 {
   if (s[0] == '$') { return "#" + std::to_string(static_cast<uint8_t>(parse_8bit_literal(s))); }
@@ -216,9 +215,9 @@ struct AVR : ASMLine
     }
   }
 
-  AVR(const int      t_line_num,
+  AVR(const int t_line_num,
     std::string_view t_line_text,
-    Type             t,
+    Type t,
     std::string_view t_opcode,
     std::string_view o1 = "",
     std::string_view o2 = "")
@@ -226,17 +225,17 @@ struct AVR : ASMLine
       opcode(parse_opcode(t, t_opcode)), operand1(parse_operand(o1)), operand2(parse_operand(o2))
   {}
 
-  int         line_num;
+  int line_num;
   std::string line_text;
-  OpCode      opcode;
-  Operand     operand1;
-  Operand     operand2;
+  OpCode opcode;
+  Operand operand1;
+  Operand operand2;
 };
 
 void indirect_load(std::vector<mos6502> &instructions,
-  const std::string &                    from_address_low_byte,
-  const std::string &                    to_address,
-  const int                              offset = 0)
+  const std::string &from_address_low_byte,
+  const std::string &to_address,
+  const int offset = 0)
 {
   instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, fmt::format("#{}", offset)));
   instructions.emplace_back(
@@ -245,9 +244,9 @@ void indirect_load(std::vector<mos6502> &instructions,
 }
 
 void indirect_store(std::vector<mos6502> &instructions,
-  const std::string &                     from_address,
-  const std::string &                     to_address_low_byte,
-  const int                               offset = 0)
+  const std::string &from_address,
+  const std::string &to_address_low_byte,
+  const int offset = 0)
 {
   instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, from_address));
   instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, fmt::format("#{}", offset)));
@@ -293,9 +292,9 @@ void add_16_bit(const Personality &personality, std::vector<mos6502> &instructio
 }
 
 void subtract_16_bit(const Personality &personality,
-  std::vector<mos6502> &                instructions,
-  int                                   reg,
-  const std::uint16_t                   value)
+  std::vector<mos6502> &instructions,
+  int reg,
+  const std::uint16_t value)
 {
   instructions.emplace_back(mos6502::OpCode::sec);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
@@ -324,10 +323,10 @@ void increment_16_bit(const Personality &personality, std::vector<mos6502> &inst
 }
 
 void translate_instruction(const Personality &personality,
-  std::vector<mos6502> &                      instructions,
-  const AVR::OpCode                           op,
-  const Operand &                             o1,
-  const Operand &                             o2)
+  std::vector<mos6502> &instructions,
+  const AVR::OpCode op,
+  const Operand &o1,
+  const Operand &o2)
 {
   const auto translate_register_number = [](const Operand &reg) {
     if (reg.value == "__zero_reg__") {
@@ -366,17 +365,19 @@ void translate_instruction(const Personality &personality,
       return;
     }
     throw std::runtime_error("Unhandled call");
-  case AVR::OpCode::icall: 
-    {
-      std::string new_label_name = "return_from_icall_" + std::to_string(instructions.size());
-      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, fmt::format("#>({}-1)", new_label_name)));
-      instructions.emplace_back(mos6502::OpCode::pha);
-      instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, fmt::format("#<({}-1)", new_label_name)));
-      instructions.emplace_back(mos6502::OpCode::pha);
-      instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, "(" + personality.get_register(AVR::get_register_number('Z')).value + ")"));
-      instructions.emplace_back(ASMLine::Type::Label, new_label_name);
-      return;
-    }
+  case AVR::OpCode::icall: {
+    std::string new_label_name = "return_from_icall_" + std::to_string(instructions.size());
+    instructions.emplace_back(
+      mos6502::OpCode::lda, Operand(Operand::Type::literal, fmt::format("#>({}-1)", new_label_name)));
+    instructions.emplace_back(mos6502::OpCode::pha);
+    instructions.emplace_back(
+      mos6502::OpCode::lda, Operand(Operand::Type::literal, fmt::format("#<({}-1)", new_label_name)));
+    instructions.emplace_back(mos6502::OpCode::pha);
+    instructions.emplace_back(mos6502::OpCode::jmp,
+      Operand(Operand::Type::literal, "(" + personality.get_register(AVR::get_register_number('Z')).value + ")"));
+    instructions.emplace_back(ASMLine::Type::Label, new_label_name);
+    return;
+  }
   case AVR::OpCode::rcall:
     if (o1.value != ".") {
       instructions.emplace_back(mos6502::OpCode::jsr, o1);
@@ -452,9 +453,7 @@ void translate_instruction(const Personality &personality,
     fixup_16_bit_N_Z_flags(instructions);
     return;
   }
-  case AVR::OpCode::inc: 
-    instructions.emplace_back(mos6502::OpCode::inc, personality.get_register(o1_reg_num));
-    return;
+  case AVR::OpCode::inc: instructions.emplace_back(mos6502::OpCode::inc, personality.get_register(o1_reg_num)); return;
 
   case AVR::OpCode::subi: {
     // to do: deal with Carry bit (and other flags) nonsense from AVR
@@ -985,7 +984,7 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
   new_instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, "main"));
 
 
-  int         instructions_to_skip = 0;
+  int instructions_to_skip = 0;
   std::string next_label_name;
   for (const auto &i : instructions) {
     to_mos6502(personality, i, new_instructions);
@@ -1030,23 +1029,28 @@ int main(const int argc, const char **argv)
 {
   spdlog::set_level(spdlog::level::trace);
   const std::map<std::string, Target> targets{ { "C64", Target::C64 } };
-  CLI::App                            app{ "C++ Compiler for 6502 processors" };
+  CLI::App app{ "C++ Compiler for 6502 processors" };
 
   std::filesystem::path filename{};
-  Target                target{ Target::C64 };
+  Target target{ Target::C64 };
 
   app.add_option("-f,--file", filename, "C++ file to compile")->required(true);
   app.add_option("-t,--target", target, "6502 - based system to target")
     ->required(true)
     ->transform(CLI::CheckedTransformer(targets, CLI::ignore_case));
 
+  std::string optimization_level;
+  app.add_option("-O", optimization_level, "Optimization level to pass to GCC instance")
+    ->required(true)
+    ->check(CLI::IsMember({ "s", "0", "1", "2", "3" }));
+
 
   CLI11_PARSE(app, argc, argv)
+
 
   const std::string_view include_directories = "-I ~/avr-libstdcpp/include/";
   const std::string_view warning_flags = "-Wall -Wextra";
   const std::string_view avr = "avr3";
-  const std::string_view optimization_level = "3";
 
   const auto make_output_file_name = [](auto input_filename, const auto &new_extension) {
     input_filename.replace_extension(new_extension);
