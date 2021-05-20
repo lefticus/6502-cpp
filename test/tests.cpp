@@ -74,7 +74,7 @@ quit
   return return_value;
 }
 
-TEMPLATE_TEST_CASE_SIG("Can write to screen memory",
+TEMPLATE_TEST_CASE_SIG("Can write to memory",
   "",
   ((OptimizationLevel O), O),
   OptimizationLevel::Os,
@@ -91,13 +91,13 @@ int main()
 }
 )";
 
-  const auto result = execute_c64_program("write_to_screen_memory", program, O, 0x400, 0x400);
+  const auto result = execute_c64_program("write_to_memory", program, O, 0x400, 0x400);
 
   REQUIRE(result.size() == 1);
   CHECK(result[0] == 10);
 }
 
-TEMPLATE_TEST_CASE_SIG("Can write to screen memory via function call",
+TEMPLATE_TEST_CASE_SIG("Can write to memory via function call",
   "",
   ((OptimizationLevel O), O),
   OptimizationLevel::Os,
@@ -118,12 +118,94 @@ int main()
   poke(0x400, 10);
   poke(0x401, 11);
 }
+
 )";
 
-  const auto result = execute_c64_program("write_to_screen_memory_via_function", program, O, 0x400, 0x401);
+  const auto result = execute_c64_program("write_to_memory_via_function", program, O, 0x400, 0x401);
 
   REQUIRE(result.size() == 2);
 
   CHECK(result[0] == 10);
   CHECK(result[1] == 11);
+}
+
+
+TEMPLATE_TEST_CASE_SIG("Can execute loop > 256",
+  "",
+  ((OptimizationLevel O), O),
+  OptimizationLevel::Os,
+  OptimizationLevel::O0,
+  OptimizationLevel::O1,
+  OptimizationLevel::O2,
+  OptimizationLevel::O3)
+{
+  constexpr static std::string_view program =
+    R"(
+
+int main()
+{
+  for (unsigned short i = 0x400; i < 0x400 + 1000; ++i) {
+    *reinterpret_cast<volatile unsigned char *>(i) = 32;
+  }
+
+  while (true) {
+    // don't allow main to exit, otherwise we get READY. on the screen
+  }
+}
+
+)";
+
+  const auto result = execute_c64_program("execute_long_loop_cls", program, O, 0x400, 0x7E7);
+
+  REQUIRE(result.size() == 1000);
+
+  CHECK(std::all_of(begin(result), end(result), [](const auto b){ return b == 32; }));
+}
+
+TEMPLATE_TEST_CASE_SIG("Write to 2D Array",
+  "",
+  ((OptimizationLevel O), O),
+  OptimizationLevel::Os,
+  OptimizationLevel::O0,
+  OptimizationLevel::O1,
+  OptimizationLevel::O2,
+  OptimizationLevel::O3)
+{
+  constexpr static std::string_view program =
+    R"(
+
+void poke(unsigned int location, unsigned char value) {
+  *reinterpret_cast<volatile unsigned char *>(location) = value;
+}
+
+void putc(unsigned char x, unsigned char y, unsigned char c) {
+  const auto start = 0x400 + (y * 40 + x);
+  poke(start, c);
+}
+
+
+int main()
+{
+  for (unsigned char y = 0; y < 25; ++y) {
+    for (unsigned char x = 0; x < 40; ++x) {
+      putc(x, y, y);
+    }
+  }
+
+  while (true) {
+    // don't allow main to exit, otherwise we get READY. on the screen
+  }
+}
+
+)";
+
+  const auto result = execute_c64_program("write_to_2d_array", program, O, 0x400, 0x7E7);
+
+  REQUIRE(result.size() == 1000);
+
+  for (std::size_t x = 0; x < 40; ++x) {
+    for (std::size_t y = 0; y < 25; ++y) {
+      CHECK(result[y*40 + x] == y);
+    }
+  }
 }
