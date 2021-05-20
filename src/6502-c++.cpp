@@ -16,9 +16,9 @@
 
 #include "include/6502.hpp"
 #include "include/assembly.hpp"
+#include "include/lib1funcs.hpp"
 #include "include/optimizer.hpp"
 #include "include/personalities/c64.hpp"
-
 
 int to_int(const std::string_view sv)
 {
@@ -875,9 +875,7 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
 
   std::vector<AVR> instructions;
 
-  while (input.good()) {
-    std::string line;
-    getline(input, line);
+  const auto parse_line = [&](const auto &line) {
     try {
       std::smatch match;
       if (std::regex_match(line, match, Label)) {
@@ -902,6 +900,29 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
     }
 
     ++lineno;
+  };
+
+  const auto parse_stream = [&](auto &stream) {
+    while (stream.good()) {
+      std::string line;
+      getline(stream, line);
+      parse_line(line);
+    }
+  };
+
+  const auto parse_string = [&](const auto &string) {
+    std::stringstream ss{std::string(string)};
+    parse_stream(ss);
+  };
+
+  parse_stream(input);
+
+  const bool needs_mulhi3 = std::any_of(begin(instructions), end(instructions), [](const AVR &instruction) {
+    return instruction.line_text.find("__mulhi3") != std::string::npos;
+  });
+
+  if (needs_mulhi3) {
+    parse_string(__mulhi3);
   }
 
   std::set<std::string> labels;
@@ -910,7 +931,7 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
     if (i.type == ASMLine::Type::Label) { labels.insert(i.text); }
   }
 
-  std::set<std::string> used_labels{ "main", "__udivmodhi4", "__mulhi3" };
+  std::set<std::string> used_labels{ "main" };
 
   for (const auto &i : instructions) {
     const auto check_label = [&](const std::string &value) {
@@ -963,7 +984,6 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
           i.text = new_labels.at(i.text);
         } catch (...) {
           spdlog::warn("Unused label: '{}', consider making function static until we remove unused functions", i.text);
-
         }
       }
     }
