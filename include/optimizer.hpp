@@ -64,6 +64,10 @@ bool optimize(std::vector<mos6502> &instructions, const Personality &personality
           // someone just loaded lda with a different value, so we need to abort!
           break;
         }
+        // abort at pla
+        if (instructions[next_op].opcode == mos6502::OpCode::pla) { break; }
+        // abort at jsr
+        if (instructions[next_op].opcode == mos6502::OpCode::jsr) { break; }
 
         // abort at label
         if (instructions[next_op].type == ASMLine::Type::Label) { break; }
@@ -141,7 +145,8 @@ bool optimize(std::vector<mos6502> &instructions, const Personality &personality
     if (instructions[op].opcode == mos6502::OpCode::ldy && instructions[op].op.type == Operand::Type::literal) {
       auto op2 = op + 1;
 
-      while (op2 < instructions.size() && (instructions[op2].type != ASMLine::Type::Label)) {
+      while (op2 < instructions.size() && (instructions[op2].type != ASMLine::Type::Label)
+             && (instructions[op2].opcode == mos6502::OpCode::jsr)) {
         // while inside this label
         if (instructions[op2].opcode == mos6502::OpCode::ldy) {
 
@@ -163,7 +168,7 @@ bool optimize(std::vector<mos6502> &instructions, const Personality &personality
   for (size_t op = 0; op < instructions.size() - 1; ++op) {
     if (instructions[op].opcode == mos6502::OpCode::lda && instructions[op].op.type == Operand::Type::literal) {
       const auto operand = instructions[op].op;
-      auto       op2 = op + 1;
+      auto op2 = op + 1;
       // look for multiple stores of the same value
       while (
         op2 < instructions.size()

@@ -41,10 +41,19 @@ std::vector<std::uint8_t> execute_c64_program(const std::string_view &name,
     return "unknown";
   }();
 
-  const auto source_filename{ fmt::format("{}{}.cpp", name, optimization_level) };
-  const auto vice_script_filename{ fmt::format("{}{}-vice_script", name, optimization_level) };
-  const auto prg_filename{ fmt::format("{}{}.prg", name, optimization_level) };
-  const auto ram_dump_filename{ fmt::format("{}{}-ram_dump", name, optimization_level) };
+  const auto optimize_6502_name = [&]() -> std::string_view {
+    switch (o6502) {
+    case Optimize6502::Enabled: return "-optimize";
+    case Optimize6502::Disabled: return "-no-optimize";
+    }
+
+    return "unknown";
+  }();
+
+  const auto source_filename{ fmt::format("{}{}{}.cpp", name, optimization_level, optimize_6502_name) };
+  const auto vice_script_filename{ fmt::format("{}{}{}-vice_script", name, optimization_level, optimize_6502_name) };
+  const auto prg_filename{ fmt::format("{}{}{}.prg", name, optimization_level, optimize_6502_name) };
+  const auto ram_dump_filename{ fmt::format("{}{}{}-ram_dump", name, optimization_level, optimize_6502_name) };
 
 
   {
