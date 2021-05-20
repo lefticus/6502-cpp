@@ -861,7 +861,7 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
 }
 
 
-std::vector<mos6502> run(const Personality &personality, std::istream &input)
+std::vector<mos6502> run(const Personality &personality, std::istream &input, const bool do_optimize)
 {
   std::regex Comment(R"(\s*(\#|;)(.*))");
   std::regex Label(R"(^\s*(\S+):.*)");
@@ -1038,8 +1038,19 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input)
     }
   }
 
-  while (optimize(new_instructions, personality)) {
-    // do it however many times it takes
+  if (do_optimize) {
+    spdlog::info("Running optimization passes");
+
+    int count = 0;
+
+    while (optimize(new_instructions, personality)) {
+      // do it however many times it takes
+      ++count;
+    }
+
+    spdlog::info("Optimization passes run: {}", count);
+  } else {
+    spdlog::info("Optimization passes disabled");
   }
 
   int branch_patch_count = 0;
@@ -1060,6 +1071,7 @@ int main(const int argc, const char **argv)
 
   std::filesystem::path filename{};
   Target target{ Target::C64 };
+  bool optimize{true};
 
   app.add_option("-f,--file", filename, "C++ file to compile")->required(true);
   app.add_option("-t,--target", target, "6502 - based system to target")
@@ -1070,6 +1082,9 @@ int main(const int argc, const char **argv)
   app.add_option("-O", optimization_level, "Optimization level to pass to GCC instance")
     ->required(true)
     ->check(CLI::IsMember({ "s", "0", "1", "2", "3" }));
+  app.add_flag("--optimize", optimize, "Enable optimization of 6502 generated assembly")
+    ->default_val(true);
+
 
 
   CLI11_PARSE(app, argc, argv)
@@ -1113,7 +1128,7 @@ int main(const int argc, const char **argv)
 
   C64 personality;
 
-  const auto new_instructions = run(personality, input);
+  const auto new_instructions = run(personality, input, optimize);
 
   {
     // make sure file is closed before we try to re-open it with xa

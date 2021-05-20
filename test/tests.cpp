@@ -5,10 +5,12 @@
 
 enum struct OptimizationLevel : char { O0 = '0', O1 = '1', O2 = '2', O3 = '3', Os = 's' };
 
+enum struct Optimize6502 : char { Enabled = '1', Disabled = '0' };
 
 std::vector<std::uint8_t> execute_c64_program(const std::string_view &name,
   const std::string_view script,
-  [[maybe_unused]] OptimizationLevel o,
+  OptimizationLevel o,
+  Optimize6502 o6502,
   std::uint16_t start_address_dump,
   std::uint16_t end_address_dump)
 {
@@ -29,6 +31,16 @@ std::vector<std::uint8_t> execute_c64_program(const std::string_view &name,
 
     return "unknown";
   }();
+
+  const auto optimize_6502 = [&]() -> std::string_view {
+    switch (o6502) {
+    case Optimize6502::Enabled: return "--optimize=1";
+    case Optimize6502::Disabled: return "--optimize=0";
+    }
+
+    return "unknown";
+  }();
+
   const auto source_filename{ fmt::format("{}{}.cpp", name, optimization_level) };
   const auto vice_script_filename{ fmt::format("{}{}-vice_script", name, optimization_level) };
   const auto prg_filename{ fmt::format("{}{}.prg", name, optimization_level) };
@@ -58,10 +70,14 @@ quit
   }
 
 
-  REQUIRE(system(fmt::format("{} -f {} -t C64 {}", mos6502_cpp_executable, source_filename, optimization_level).c_str())
+  REQUIRE(system(fmt::format(
+            "{} -f {} -t C64 {} {}", mos6502_cpp_executable, source_filename, optimization_level, optimize_6502)
+                   .c_str())
           == EXIT_SUCCESS);
   REQUIRE(
-    system(fmt::format("xvfb-run -d {} +vsync -sounddev dummy +saveres -warp -moncommands {}", x64_executable, vice_script_filename).c_str())
+    system(fmt::format(
+      "xvfb-run -d {} +vsync -sounddev dummy +saveres -warp -moncommands {}", x64_executable, vice_script_filename)
+             .c_str())
     == EXIT_SUCCESS);
 
   std::ifstream memory_dump(ram_dump_filename, std::ios::binary);
@@ -91,7 +107,7 @@ int main()
 }
 )";
 
-  const auto result = execute_c64_program("write_to_memory", program, O, 0x400, 0x400);
+  const auto result = execute_c64_program("write_to_memory", program, O, Optimize6502::Enabled, 0x400, 0x400);
 
   REQUIRE(result.size() == 1);
   CHECK(result[0] == 10);
@@ -121,7 +137,8 @@ int main()
 
 )";
 
-  const auto result = execute_c64_program("write_to_memory_via_function", program, O, 0x400, 0x401);
+  const auto result =
+    execute_c64_program("write_to_memory_via_function", program, O, Optimize6502::Enabled, 0x400, 0x401);
 
   REQUIRE(result.size() == 2);
 
@@ -155,21 +172,24 @@ int main()
 
 )";
 
-  const auto result = execute_c64_program("execute_long_loop_cls", program, O, 0x400, 0x7E7);
+  const auto result = execute_c64_program("execute_long_loop_cls", program, O, Optimize6502::Enabled, 0x400, 0x7E7);
 
   REQUIRE(result.size() == 1000);
 
-  CHECK(std::all_of(begin(result), end(result), [](const auto b){ return b == 32; }));
+  CHECK(std::all_of(begin(result), end(result), [](const auto b) { return b == 32; }));
 }
 
 TEMPLATE_TEST_CASE_SIG("Write to 2D Array",
   "",
-  ((OptimizationLevel O), O),
-  OptimizationLevel::Os,
-  OptimizationLevel::O0,
-  OptimizationLevel::O1,
-  OptimizationLevel::O2,
-  OptimizationLevel::O3)
+  ((OptimizationLevel O, Optimize6502 O6502), O, O6502),
+  (OptimizationLevel::Os, Optimize6502::Disabled),
+  (OptimizationLevel::Os, Optimize6502::Enabled),
+  (OptimizationLevel::O0, Optimize6502::Disabled),
+  (OptimizationLevel::O0, Optimize6502::Enabled),
+  (OptimizationLevel::O1, Optimize6502::Enabled),
+  (OptimizationLevel::O2, Optimize6502::Enabled),
+  (OptimizationLevel::O3, Optimize6502::Disabled),
+  (OptimizationLevel::O3, Optimize6502::Enabled))
 {
   constexpr static std::string_view program =
     R"(
@@ -199,13 +219,11 @@ int main()
 
 )";
 
-  const auto result = execute_c64_program("write_to_2d_array", program, O, 0x400, 0x7E7);
+  const auto result = execute_c64_program("write_to_2d_array", program, O, O6502, 0x400, 0x7E7);
 
   REQUIRE(result.size() == 1000);
 
   for (std::size_t x = 0; x < 40; ++x) {
-    for (std::size_t y = 0; y < 25; ++y) {
-      CHECK(result[y*40 + x] == y);
-    }
+    for (std::size_t y = 0; y < 25; ++y) { CHECK(result[y * 40 + x] == y); }
   }
 }
