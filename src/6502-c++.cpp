@@ -105,6 +105,8 @@ struct AVR : ASMLine
     inc,
     icall,
 
+    jmp,
+
     ld,
     ldd,
     ldi,
@@ -193,6 +195,7 @@ struct AVR : ASMLine
       if (o == "out") { return OpCode::out; }
       if (o == "inc") { return OpCode::inc; }
       if (o == "nop") { return OpCode::nop; }
+      if (o == "jmp") { return OpCode::jmp; }
     }
     }
     throw std::runtime_error(fmt::format("Unknown opcode: {}", o));
@@ -343,6 +346,8 @@ void translate_instruction(const Personality &personality,
   const auto o2_reg_num = translate_register_number(o2);
 
   switch (op) {
+  case AVR::OpCode::jmp: instructions.emplace_back(mos6502::OpCode::jmp, o1); return;
+
   case AVR::OpCode::dec: instructions.emplace_back(mos6502::OpCode::dec, personality.get_register(o1_reg_num)); return;
   case AVR::OpCode::ldi:
     instructions.emplace_back(mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal(o2.value)));
