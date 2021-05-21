@@ -65,10 +65,10 @@ std::vector<std::uint8_t> execute_c64_program(const std::string_view &name,
     std::ofstream vice_script(vice_script_filename);
     vice_script << fmt::format(
       R"(
-z 100000
+until e5d1
 l "{}" 0
 keybuf run\n
-z 100000
+until e147
 bsave "{}" 0 {:x} {:x}
 quit
 )",
@@ -174,9 +174,9 @@ int main()
     *reinterpret_cast<volatile unsigned char *>(i) = 32;
   }
 
-  while (true) {
+//  while (true) {
     // don't allow main to exit, otherwise we get READY. on the screen
-  }
+//  }
 }
 
 )";
@@ -221,9 +221,9 @@ int main()
     }
   }
 
-  while (true) {
+//  while (true) {
     // don't allow main to exit, otherwise we get READY. on the screen
-  }
+//  }
 }
 
 )";
