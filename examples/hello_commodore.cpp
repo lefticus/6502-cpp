@@ -24,21 +24,6 @@ static void puts(uint8_t x, uint8_t y, std::string_view str) {
 }
 
 int main() {
-  std::uint8_t x = 0;
-  std::uint8_t y = 0;
-
-  while (true) {
-    puts(x, y, "hello commodore!");
-    x += 3;
-    ++y;
-    if (x > 26) {
-      x = 0;
-    }
-
-    if (y>25) {
-      y = 0;
-    }
-
-  }
+  puts(15, 10, "hello commodore!");
 }
 

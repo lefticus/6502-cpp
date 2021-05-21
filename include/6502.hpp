@@ -20,15 +20,20 @@ struct mos6502 : ASMLine
     bne,
     bpl,
 
+    cpx,
     cpy,
     cmp,
     clc,
 
     dec,
+    dex,
+    dey,
 
     eor,
 
     inc,
+    inx,
+    iny,
 
     jmp,
     jsr,
@@ -79,12 +84,17 @@ struct mos6502 : ASMLine
     case OpCode::AND:
     case OpCode::asl:
     case OpCode::bit:
+    case OpCode::cpx:
     case OpCode::cpy:
     case OpCode::cmp:
     case OpCode::clc:
     case OpCode::dec:
+    case OpCode::dex:
     case OpCode::eor:
     case OpCode::inc:
+    case OpCode::inx:
+    case OpCode::iny:
+    case OpCode::dey:
     case OpCode::jmp:
     case OpCode::jsr:
     case OpCode::lda:
@@ -124,6 +134,7 @@ struct mos6502 : ASMLine
     case OpCode::bit:
     case OpCode::cmp:
     case OpCode::cpy:
+    case OpCode::cpx:
       return true;
     case OpCode::adc:
     case OpCode::AND:
@@ -136,8 +147,12 @@ struct mos6502 : ASMLine
     case OpCode::bcs:
     case OpCode::clc:
     case OpCode::dec:
+    case OpCode::dex:
     case OpCode::eor:
     case OpCode::inc:
+    case OpCode::inx:
+    case OpCode::iny:
+    case OpCode::dey:
     case OpCode::jmp:
     case OpCode::jsr:
     case OpCode::lda:
@@ -231,6 +246,11 @@ struct mos6502 : ASMLine
     case OpCode::bcc: return "bcc";
     case OpCode::bcs: return "bcs";
     case OpCode::nop: return "nop";
+    case OpCode::inx: return "inx";
+    case OpCode::dex: return "dex";
+    case OpCode::cpx: return "cpx";
+    case OpCode::dey: return "dey";
+    case OpCode::iny: return "iny";
     case OpCode::unknown: return "";
     }
 
