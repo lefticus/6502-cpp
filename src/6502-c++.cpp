@@ -315,14 +315,12 @@ void subtract_16_bit(const Personality &personality,
 
 void increment_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg)
 {
-  // instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, address_low_byte));
-  instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
-  instructions.emplace_back(mos6502::OpCode::clc);
-  instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#1"));
-  instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg));
-  instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
-  instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#0"));
-  instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
+  std::string skip_high_byte_label =
+    "skip_inc_high_byte_" + std::to_string(instructions.size());
+  instructions.emplace_back(mos6502::OpCode::inc, personality.get_register(reg));
+  instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, skip_high_byte_label));
+  instructions.emplace_back(mos6502::OpCode::inc, personality.get_register(reg+1));
+  instructions.emplace_back(ASMLine::Type::Label, skip_high_byte_label);
 }
 
 void translate_instruction(const Personality &personality,
