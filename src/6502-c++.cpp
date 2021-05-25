@@ -47,6 +47,16 @@ std::string_view strip_negate(std::string_view s)
   return s;
 }
 
+std::string_view strip_gs(std::string_view s)
+{
+  const auto matcher = ctre::match<R"(gs\((.*)\))">;
+
+  if (const auto results = matcher(s); results) {
+    return results.get<1>();
+  }
+
+  return s;
+}
 
 std::string_view strip_offset(std::string_view s)
 {
@@ -64,8 +74,8 @@ std::string fixup_8bit_literal(const std::string &s)
 
   if (s.starts_with("0x")) { return "#$" + s.substr(2); }
 
-  if (s.starts_with("lo8(")) { return fmt::format("#<{}", strip_lo_hi(s)); }
-  if (s.starts_with("hi8(")) { return fmt::format("#>{}", strip_lo_hi(s)); }
+  if (s.starts_with("lo8(")) { return fmt::format("#<{}", strip_gs(strip_lo_hi(s))); }
+  if (s.starts_with("hi8(")) { return fmt::format("#>{}", strip_gs(strip_lo_hi(s))); }
 
   const auto is_num = std::all_of(begin(s), end(s), [](const auto c) { return (c >= '0' && c <= '9') || c == '-'; });
 
@@ -955,8 +965,8 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
 
       check_label(i.operand1.value);
       check_label(i.operand2.value);
-      check_label(std::string{ strip_offset(strip_negate(strip_lo_hi(i.operand1.value))) });
-      check_label(std::string{ strip_offset(strip_negate(strip_lo_hi(i.operand2.value))) });
+      check_label(std::string{ strip_gs(strip_offset(strip_negate(strip_lo_hi(i.operand1.value)))) });
+      check_label(std::string{ strip_gs(strip_offset(strip_negate(strip_lo_hi(i.operand2.value)))) });
     } else if (i.type == ASMLine::Type::Directive) {
       const auto matcher = ctre::match<R"(\s*.word\s*gs\((.*)\))">;
 
@@ -976,12 +986,18 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
       //        newl.erase(std::remove_if(newl.begin(), newl.end(), [](const auto c) { return !std::isalnum(c); }),
       //        std::end(newl));
 
-      // strip just first \.
-      if (l[0] == '.') {
-        result.emplace(std::make_pair(l, l.substr(1)));
-      } else {
-        result.emplace(std::make_pair(l, l));
-      }
+      const auto new_label = [](auto label) -> std::string {
+        if (label[0] == '.') {
+          label.erase(0,1);
+        }
+
+        for (auto &c : label) { if (c == '.') { c = '_'; }
+        }
+
+        return label;
+      };
+
+      result.emplace(std::make_pair(l, new_label(l)));
     }
     return result;
   }();

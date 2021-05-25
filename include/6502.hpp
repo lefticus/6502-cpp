@@ -264,7 +264,7 @@ struct mos6502 : ASMLine
       return text;// + ':';
     case ASMLine::Type::Directive:
     case ASMLine::Type::Instruction: {
-      return fmt::format("\t{} {:15}; {}", text, op.value, comment);
+      return fmt::format("\t{} {:15}\t; {}", text, op.value, comment);
     }
     }
     throw std::runtime_error("Unable to render: " + text);

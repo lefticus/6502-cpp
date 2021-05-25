@@ -4,6 +4,7 @@
 #include <cstring>
 #include <string_view>
 #include <span>
+#include <variant>
 
 #include "chargen.hpp"
 
@@ -285,6 +286,7 @@ struct SimpleSprite
   }
 };
 
+
 struct Screen
 {
   void load(std::uint8_t x, std::uint8_t y, auto &s) {
@@ -405,10 +407,36 @@ int main() {
     std::uint8_t stamina{max_stamina()};
     std::uint16_t cash{100};
 
-    constexpr std::uint8_t max_stamina() const {
+    Clock game_clock{};
+
+    constexpr std::uint8_t max_stamina() const noexcept {
       return endurance * 5;
     }
 
+    struct JoyStickStateChanged
+    {
+      std::uint8_t state;
+    };
+
+    struct TimeElapsed
+    {
+      Clock::milliseconds us;
+    };
+
+    using Event = std::variant<JoyStickStateChanged, TimeElapsed>;
+
+    std::uint8_t last_joystick_state = peek(0xDC00);
+
+    Event next_event() noexcept {
+      const auto new_joystick_state = peek(0xDC00);
+
+      if (new_joystick_state != last_joystick_state) {
+        last_joystick_state = new_joystick_state;
+        return JoyStickStateChanged{new_joystick_state};
+      }
+
+      return TimeElapsed{game_clock.restart()};
+    }
   };
 
   GameState game;
@@ -428,22 +456,33 @@ int main() {
     put_hex(12,23, cur_game.cash);
   };
 
-  Clock game_clock{};
   Screen screen;
 
   show_stats(game);
 
   std::uint8_t x = 0;
 
+  struct HandleEvents {
+
+    void operator()(const GameState::JoyStickStateChanged &e) {
+      put_hex(36, 1, e.state);
+    }
+
+    void operator()(const GameState::TimeElapsed &e) {
+      put_hex(36, 0, e.us.count());
+    }
+
+  };
+
+  HandleEvents eventHandler;
+
   while (true) {
-    const auto us_elapsed = game_clock.restart().count();
-//    show_stats(game);
-    put_hex(36, 0, us_elapsed);
+    std::visit(eventHandler, game.next_event());
 
     screen.show(x++, 10, character);
 
-    if (x == 36) {
-      x = 0;
+    if (x == 11) {
+      x = 10;
     }
     increment_border_color();
   }
