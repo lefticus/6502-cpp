@@ -815,7 +815,8 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
           const auto matched_gs = results.get<1>().to_string();
           instructions.emplace_back(ASMLine::Type::Directive, ".word " + matched_gs);
         } else {
-          spdlog::warn("Unknown .word directive");
+          instructions.emplace_back(ASMLine::Type::Directive, ".word " + from_instruction.text.substr(6));
+         // spdlog::warn("Unknown .word directive '{}'", from_instruction.text);
         }
 
       } else if (from_instruction.text.starts_with(".byte")) {
