@@ -51,9 +51,7 @@ std::string_view strip_gs(std::string_view s)
 {
   const auto matcher = ctre::match<R"(gs\((.*)\))">;
 
-  if (const auto results = matcher(s); results) {
-    return results.get<1>();
-  }
+  if (const auto results = matcher(s); results) { return results.get<1>(); }
 
   return s;
 }
@@ -294,6 +292,21 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda, bcc, bcs");
 }
 
+void add_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg, const std::string_view value)
+{
+  instructions.emplace_back(mos6502::OpCode::clc);
+  instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
+  instructions.emplace_back(
+    mos6502::OpCode::adc, Operand(Operand::Type::literal, fmt::format("#({})", value)));
+  instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg));
+  instructions.emplace_back(mos6502::OpCode::tax);
+  instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
+  instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, "#0"));
+  instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
+
+  fixup_16_bit_N_Z_flags(instructions);
+}
+
 void add_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg, const std::uint16_t value)
 {
   instructions.emplace_back(mos6502::OpCode::clc);
@@ -305,6 +318,25 @@ void add_16_bit(const Personality &personality, std::vector<mos6502> &instructio
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
   instructions.emplace_back(
     mos6502::OpCode::adc, Operand(Operand::Type::literal, "#" + std::to_string((value >> 8u) & 0xFFu)));
+  instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
+
+  fixup_16_bit_N_Z_flags(instructions);
+}
+
+void subtract_16_bit(const Personality &personality,
+  std::vector<mos6502> &instructions,
+  int reg,
+  const std::string_view value)
+{
+  instructions.emplace_back(mos6502::OpCode::sec);
+  instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
+  instructions.emplace_back(
+    mos6502::OpCode::sbc, Operand(Operand::Type::literal, fmt::format("#({})", value)));
+  instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg));
+  instructions.emplace_back(mos6502::OpCode::tax);
+  instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
+  instructions.emplace_back(
+    mos6502::OpCode::sbc, Operand(Operand::Type::literal, "#0"));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
 
   fixup_16_bit_N_Z_flags(instructions);
@@ -331,11 +363,10 @@ void subtract_16_bit(const Personality &personality,
 
 void increment_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg)
 {
-  std::string skip_high_byte_label =
-    "skip_inc_high_byte_" + std::to_string(instructions.size());
+  std::string skip_high_byte_label = "skip_inc_high_byte_" + std::to_string(instructions.size());
   instructions.emplace_back(mos6502::OpCode::inc, personality.get_register(reg));
   instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, skip_high_byte_label));
-  instructions.emplace_back(mos6502::OpCode::inc, personality.get_register(reg+1));
+  instructions.emplace_back(mos6502::OpCode::inc, personality.get_register(reg + 1));
   instructions.emplace_back(ASMLine::Type::Label, skip_high_byte_label);
 }
 
@@ -365,8 +396,6 @@ void translate_instruction(const Personality &personality,
     // sufficient
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
     return;
-
-    
   }
   case AVR::OpCode::dec: instructions.emplace_back(mos6502::OpCode::dec, personality.get_register(o1_reg_num)); return;
   case AVR::OpCode::ldi:
@@ -591,12 +620,12 @@ void translate_instruction(const Personality &personality,
   }
 
   case AVR::OpCode::sbiw: {
-    subtract_16_bit(personality, instructions, o1_reg_num, static_cast<std::uint16_t>(to_int(o2.value)));
+    subtract_16_bit(personality, instructions, o1_reg_num, o2.value);
     return;
   }
 
   case AVR::OpCode::adiw: {
-    add_16_bit(personality, instructions, o1_reg_num, static_cast<std::uint16_t>(to_int(o2.value)));
+    add_16_bit(personality, instructions, o1_reg_num, o2.value);
     return;
   }
 
@@ -934,7 +963,7 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
   };
 
   const auto parse_string = [&](const auto &string) {
-    std::stringstream ss{std::string(string)};
+    std::stringstream ss{ std::string(string) };
     parse_stream(ss);
   };
 
@@ -944,9 +973,7 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
     return instruction.line_text.find("__mulhi3") != std::string::npos;
   });
 
-  if (needs_mulhi3) {
-    parse_string(__mulhi3);
-  }
+  if (needs_mulhi3) { parse_string(__mulhi3); }
 
   std::set<std::string> labels;
 
@@ -987,11 +1014,10 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
       //        std::end(newl));
 
       const auto new_label = [](auto label) -> std::string {
-        if (label[0] == '.') {
-          label.erase(0,1);
-        }
+        if (label[0] == '.') { label.erase(0, 1); }
 
-        for (auto &c : label) { if (c == '.') { c = '_'; }
+        for (auto &c : label) {
+          if (c == '.') { c = '_'; }
         }
 
         return label;
@@ -1100,7 +1126,7 @@ int main(const int argc, const char **argv)
 
   std::filesystem::path filename{};
   Target target{ Target::C64 };
-  bool optimize{true};
+  bool optimize{ true };
 
   app.add_option("-f,--file", filename, "C++ file to compile")->required(true);
   app.add_option("-t,--target", target, "6502 - based system to target")
@@ -1111,9 +1137,7 @@ int main(const int argc, const char **argv)
   app.add_option("-O", optimization_level, "Optimization level to pass to GCC instance")
     ->required(true)
     ->check(CLI::IsMember({ "s", "0", "1", "2", "3" }));
-  app.add_flag("--optimize", optimize, "Enable optimization of 6502 generated assembly")
-    ->default_val(true);
-
+  app.add_flag("--optimize", optimize, "Enable optimization of 6502 generated assembly")->default_val(true);
 
 
   CLI11_PARSE(app, argc, argv)
@@ -1132,14 +1156,49 @@ int main(const int argc, const char **argv)
   const auto mos6502_output_file = make_output_file_name(filename, "6502.asm");
   const auto program_output_file = make_output_file_name(filename, "prg");
 
+  std::string disabled_optimizations;
+/*
+  disabled_optimizations += " -fno-gcse-after-reload";
+  disabled_optimizations += " -fno-ipa-cp-clone";
+  disabled_optimizations += " -fno-loop-interchange";
+  disabled_optimizations += " -fno-loop-unroll-and-jam";
+  disabled_optimizations += " -fno-peel-loops";
+  disabled_optimizations += " -fno-predictive-commoning";
+  disabled_optimizations += " -fno-split-loops";
+  disabled_optimizations += " -fno-split-paths";
+  disabled_optimizations += " -fno-tree-loop-distribution";
+  disabled_optimizations += " -fno-tree-loop-vectorize";
+  disabled_optimizations += " -fno-tree-partial-pre";
+  disabled_optimizations += " -fno-tree-slp-vectorize";
+  disabled_optimizations += " -fno-unswitch-loops";
+  disabled_optimizations += " -fvect-cost-model=cheap";
+  disabled_optimizations += " -fno-version-loops-for-strides";
+  */
+//  disabled_optimizations += " -fgcse-after-reload";
+//  disabled_optimizations += " -fipa-cp-clone";
+//  disabled_optimizations += " -floop-interchange";
+//  disabled_optimizations += " -floop-unroll-and-jam";
+//  disabled_optimizations += " -fpeel-loops";
+//  disabled_optimizations += " -fpredictive-commoning";
+//  disabled_optimizations += " -fsplit-loops";
+//  disabled_optimizations += " -fsplit-paths";
+//  disabled_optimizations += " -ftree-loop-distribution";
+//  disabled_optimizations += " -ftree-loop-vectorize";
+//  disabled_optimizations += " -ftree-partial-pre";
+//  disabled_optimizations += " -ftree-slp-vectorize";
+//  disabled_optimizations += " -funswitch-loops";
+//  disabled_optimizations += " -fvect-cost-model=dynamic";
+//  disabled_optimizations += " -fversion-loops-for-strides";
+
   const std::string gcc_command = fmt::format(
     "avr-gcc -fverbose-asm -c -o {outfile} -S {warning_flags} -std=c++20 -mtiny-stack "
-    "-mmcu={avr} -O{optimization} {include_dirs} {infile}",
+    "-mmcu={avr} -O{optimization} {disabled_optimizations} {include_dirs} {infile}",
     fmt::arg("outfile", avr_output_file.generic_string()),
     fmt::arg("warning_flags", warning_flags),
     fmt::arg("avr", avr),
     fmt::arg("optimization", optimization_level),
     fmt::arg("include_dirs", include_directories),
+    fmt::arg("disabled_optimizations", disabled_optimizations),
     fmt::arg("infile", filename.generic_string()));
 
   spdlog::info("Executing gcc: `{}`", gcc_command);

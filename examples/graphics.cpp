@@ -24,6 +24,28 @@ static void decrement_border_color() { --memory_loc(0xd020); }
 
 static void increment_border_color() { ++memory_loc(0xd020); }
 
+
+struct Joystick
+{
+  std::uint8_t state{};
+
+  constexpr bool up() const noexcept {
+    return (state & 1) == 0;
+  }
+  constexpr bool left() const noexcept {
+    return (state & 4) == 0;
+  }
+  constexpr bool fire() const noexcept {
+    return (state & 16) == 0;
+  }
+  constexpr bool right() const noexcept {
+    return (state & 8) == 0;
+  }
+  constexpr bool down() const noexcept {
+    return (state & 2) == 0;
+  }
+};
+
 static bool joystick_down() {
   uint8_t joystick_state = peek(0xDC00);
   return (joystick_state & 2) == 0;
@@ -287,6 +309,11 @@ struct SimpleSprite
 };
 
 
+// helper type for the visitor #4
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+// explicit deduction guide (not needed as of C++20)
+template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+
 struct Screen
 {
   void load(std::uint8_t x, std::uint8_t y, auto &s) {
@@ -413,9 +440,15 @@ int main() {
       return endurance * 5;
     }
 
-    struct JoyStickStateChanged
+    struct JoyStick1StateChanged
     {
-      std::uint8_t state;
+      Joystick state;
+    };
+
+
+    struct JoyStick2StateChanged
+    {
+      Joystick state;
     };
 
     struct TimeElapsed
@@ -423,16 +456,16 @@ int main() {
       Clock::milliseconds us;
     };
 
-    using Event = std::variant<JoyStickStateChanged, TimeElapsed>;
+    using Event = std::variant<JoyStick2StateChanged, TimeElapsed>;
 
-    std::uint8_t last_joystick_state = peek(0xDC00);
+    std::uint8_t last_joystick_2_state = peek(0xDC00);
 
     Event next_event() noexcept {
-      const auto new_joystick_state = peek(0xDC00);
+      const auto new_joystick_2_state = peek(0xDC00);
 
-      if (new_joystick_state != last_joystick_state) {
-        last_joystick_state = new_joystick_state;
-        return JoyStickStateChanged{new_joystick_state};
+      if (new_joystick_2_state != last_joystick_2_state) {
+        last_joystick_2_state = new_joystick_2_state;
+        return JoyStick2StateChanged{Joystick{new_joystick_2_state}};
       }
 
       return TimeElapsed{game_clock.restart()};
@@ -460,30 +493,35 @@ int main() {
 
   show_stats(game);
 
-  std::uint8_t x = 0;
+  std::uint8_t x = 20;
+  std::uint8_t y = 12;
 
-  struct HandleEvents {
+  auto eventHandler = overloaded {
+    [&](const GameState::JoyStick2StateChanged &e) {
+      if (e.state.up()) {
+        --y;
+      }
+      if (e.state.down()) {
+        ++y;
+      }
+      if (e.state.left()) {
+        --x;
+      }
+      if (e.state.right()) {
+        ++x;
+      }
+      screen.show(x, y, character);
 
-    void operator()(const GameState::JoyStickStateChanged &e) {
-      put_hex(36, 1, e.state);
-    }
-
-    void operator()(const GameState::TimeElapsed &e) {
+      put_hex(36, 1, e.state.state);
+    },
+    [](const GameState::TimeElapsed &e) {
       put_hex(36, 0, e.us.count());
     }
-
   };
-
-  HandleEvents eventHandler;
 
   while (true) {
     std::visit(eventHandler, game.next_event());
 
-    screen.show(x++, 10, character);
-
-    if (x == 11) {
-      x = 10;
-    }
     increment_border_color();
   }
 
