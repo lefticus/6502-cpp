@@ -177,9 +177,8 @@ bool optimize_redundant_lda(std::span<mos6502> &block, const Personality &person
   // look for a literal or virtual register load into A
   // that is redundant later
   for (auto itr = block.begin(); itr != block.end(); ++itr) {
-    if (itr->opcode == mos6502::OpCode::lda &&
-      (itr->op.value.starts_with('#')
-          || is_virtual_register_op(*itr, personality))) {
+    if (itr->opcode == mos6502::OpCode::lda
+        && (itr->op.value.starts_with('#') || is_virtual_register_op(*itr, personality))) {
       for (auto inner = std::next(itr); inner != block.end(); ++inner) {
         if (is_opcode(*inner,
               mos6502::OpCode::tay,
@@ -257,9 +256,9 @@ bool optimize(std::vector<mos6502> &instructions, [[maybe_unused]] const Persona
   // it might make sense in the future to only insert these if determined they are needed?
   for (size_t op = 10; op < instructions.size(); ++op) {
     if (instructions[op].opcode == mos6502::OpCode::lda || instructions[op].opcode == mos6502::OpCode::bcc
-        || instructions[op].opcode == mos6502::OpCode::bcs) {
-      if (instructions[op - 1].text == "; END remove if next is lda, bcc, bcs"
-          || (instructions[op - 2].text == "; END remove if next is lda, bcc, bcs"
+        || instructions[op].opcode == mos6502::OpCode::bcs || instructions[op].opcode == mos6502::OpCode::ldy) {
+      if (instructions[op - 1].text == "; END remove if next is lda, bcc, bcs, ldy"
+          || (instructions[op - 2].text == "; END remove if next is lda, bcc, bcs, ldy"
               && instructions[op - 1].type == ASMLine::Type::Directive)) {
         for (size_t inner_op = op - 1; inner_op > 1; --inner_op) {
           instructions[inner_op] =
@@ -284,9 +283,9 @@ bool optimize(std::vector<mos6502> &instructions, [[maybe_unused]] const Persona
 
   bool block_optimized = false;
   for (auto &block : get_optimizable_blocks(instructions)) {
-    block_optimized = block_optimized || optimize_redundant_lda_after_sta(block) || optimize_dead_sta(block, personality) || optimize_dead_tax(block)
-        || optimize_redundant_ldy(block) || optimize_redundant_lda(block, personality);
-
+    block_optimized = block_optimized || optimize_redundant_lda_after_sta(block)
+                      || optimize_dead_sta(block, personality) || optimize_dead_tax(block)
+                      || optimize_redundant_ldy(block) || optimize_redundant_lda(block, personality);
   }
   return block_optimized;
 }

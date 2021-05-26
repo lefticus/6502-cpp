@@ -289,7 +289,7 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   // if low order byte is negative, just load 1, this will properly set the Z flag and leave C correct
   instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#1"));
   instructions.emplace_back(ASMLine::Type::Label, set_flag_label);
-  instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda, bcc, bcs");
+  instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda, bcc, bcs, ldy");
 }
 
 void add_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg, const std::string_view value)
@@ -1174,21 +1174,6 @@ int main(const int argc, const char **argv)
   disabled_optimizations += " -fvect-cost-model=cheap";
   disabled_optimizations += " -fno-version-loops-for-strides";
   */
-//  disabled_optimizations += " -fgcse-after-reload";
-//  disabled_optimizations += " -fipa-cp-clone";
-//  disabled_optimizations += " -floop-interchange";
-//  disabled_optimizations += " -floop-unroll-and-jam";
-//  disabled_optimizations += " -fpeel-loops";
-//  disabled_optimizations += " -fpredictive-commoning";
-//  disabled_optimizations += " -fsplit-loops";
-//  disabled_optimizations += " -fsplit-paths";
-//  disabled_optimizations += " -ftree-loop-distribution";
-//  disabled_optimizations += " -ftree-loop-vectorize";
-//  disabled_optimizations += " -ftree-partial-pre";
-//  disabled_optimizations += " -ftree-slp-vectorize";
-//  disabled_optimizations += " -funswitch-loops";
-//  disabled_optimizations += " -fvect-cost-model=dynamic";
-//  disabled_optimizations += " -fversion-loops-for-strides";
 
   const std::string gcc_command = fmt::format(
     "avr-gcc -fverbose-asm -c -o {outfile} -S {warning_flags} -std=c++20 -mtiny-stack "
