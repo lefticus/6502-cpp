@@ -30,6 +30,10 @@ constexpr bool is_opcode(const mos6502 &op, const auto... opcodes) { return ((op
 
 constexpr bool is_end_of_block(const auto &begin)
 {
+  if (begin->text.ends_with("__optimizable") || begin->op.value.ends_with("__optimizable")) {
+        return false;
+  }
+
   if (begin->type == ASMLine::Type::Label) { return true; }
 
   return is_opcode(*begin,

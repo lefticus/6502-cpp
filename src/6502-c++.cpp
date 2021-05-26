@@ -363,7 +363,7 @@ void subtract_16_bit(const Personality &personality,
 
 void increment_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg)
 {
-  std::string skip_high_byte_label = "skip_inc_high_byte_" + std::to_string(instructions.size());
+  std::string skip_high_byte_label = "skip_inc_high_byte_" + std::to_string(instructions.size()) + "__optimizable";
   instructions.emplace_back(mos6502::OpCode::inc, personality.get_register(reg));
   instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, skip_high_byte_label));
   instructions.emplace_back(mos6502::OpCode::inc, personality.get_register(reg + 1));
@@ -573,7 +573,7 @@ void translate_instruction(const Personality &personality,
   case AVR::OpCode::cpse: {
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
     instructions.emplace_back(mos6502::OpCode::cmp, personality.get_register(o2_reg_num));
-    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
     instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
     instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
     return;
@@ -582,7 +582,7 @@ void translate_instruction(const Personality &personality,
     instructions.emplace_back(
       mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (to_int(o2.value))))));
     instructions.emplace_back(mos6502::OpCode::bit, personality.get_register(o1_reg_num));
-    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
     instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
     instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
     return;
@@ -591,7 +591,7 @@ void translate_instruction(const Personality &personality,
     instructions.emplace_back(mos6502::OpCode::lda,
       Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (to_int(o2.value.c_str()))))));
     instructions.emplace_back(mos6502::OpCode::bit, personality.get_register(o1_reg_num));
-    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
     instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_label_name));
     instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
     return;
@@ -602,7 +602,7 @@ void translate_instruction(const Personality &personality,
       return;
     } else if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
-      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
       instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_label_name));
       instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
       return;
@@ -664,7 +664,7 @@ void translate_instruction(const Personality &personality,
 
     if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
-      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
       instructions.emplace_back(mos6502::OpCode::bcc, Operand(Operand::Type::literal, new_label_name));
       instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
       return;
@@ -729,7 +729,7 @@ void translate_instruction(const Personality &personality,
   case AVR::OpCode::brsh: {
     if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcs instead of bcc
-      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
       instructions.emplace_back(mos6502::OpCode::bcs, Operand(Operand::Type::literal, new_label_name));
       instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
       return;
@@ -772,7 +772,7 @@ void translate_instruction(const Personality &personality,
   case AVR::OpCode::breq: {
     if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
-      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
       instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
       instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
       return;
