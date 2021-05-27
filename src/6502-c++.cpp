@@ -72,8 +72,8 @@ std::string fixup_8bit_literal(const std::string &s)
 
   if (s.starts_with("0x")) { return "#$" + s.substr(2); }
 
-  if (s.starts_with("lo8(")) { return fmt::format("#<{}", strip_gs(strip_lo_hi(s))); }
-  if (s.starts_with("hi8(")) { return fmt::format("#>{}", strip_gs(strip_lo_hi(s))); }
+  if (s.starts_with("lo8(")) { return fmt::format("#<({})", strip_gs(strip_lo_hi(s))); }
+  if (s.starts_with("hi8(")) { return fmt::format("#>({})", strip_gs(strip_lo_hi(s))); }
 
   const auto is_num = std::all_of(begin(s), end(s), [](const auto c) { return (c >= '0' && c <= '9') || c == '-'; });
 
@@ -292,12 +292,14 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda, bcc, bcs, ldy");
 }
 
-void add_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg, const std::string_view value)
+void add_16_bit(const Personality &personality,
+  std::vector<mos6502> &instructions,
+  int reg,
+  const std::string_view value)
 {
   instructions.emplace_back(mos6502::OpCode::clc);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
-  instructions.emplace_back(
-    mos6502::OpCode::adc, Operand(Operand::Type::literal, fmt::format("#({})", value)));
+  instructions.emplace_back(mos6502::OpCode::adc, Operand(Operand::Type::literal, fmt::format("#({})", value)));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg));
   instructions.emplace_back(mos6502::OpCode::tax);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
@@ -330,13 +332,11 @@ void subtract_16_bit(const Personality &personality,
 {
   instructions.emplace_back(mos6502::OpCode::sec);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg));
-  instructions.emplace_back(
-    mos6502::OpCode::sbc, Operand(Operand::Type::literal, fmt::format("#({})", value)));
+  instructions.emplace_back(mos6502::OpCode::sbc, Operand(Operand::Type::literal, fmt::format("#({})", value)));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg));
   instructions.emplace_back(mos6502::OpCode::tax);
   instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(reg + 1));
-  instructions.emplace_back(
-    mos6502::OpCode::sbc, Operand(Operand::Type::literal, "#0"));
+  instructions.emplace_back(mos6502::OpCode::sbc, Operand(Operand::Type::literal, "#0"));
   instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(reg + 1));
 
   fixup_16_bit_N_Z_flags(instructions);
@@ -809,14 +809,14 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
         instructions.emplace_back(ASMLine::Type::Directive, ".asc " + from_instruction.text.substr(7));
       } else if (from_instruction.text.starts_with(".word")) {
 
-        const auto matcher = ctre::match<R"(\s*.word\s*gs\((.*)\))">;
+        const auto matcher = ctre::match<R"(\s*.word\s*(.*))">;
 
         if (const auto results = matcher(from_instruction.text); results) {
           const auto matched_gs = results.get<1>().to_string();
-          instructions.emplace_back(ASMLine::Type::Directive, ".word " + matched_gs);
+          instructions.emplace_back(ASMLine::Type::Directive, ".word " + std::string{strip_gs(matched_gs)});
         } else {
           instructions.emplace_back(ASMLine::Type::Directive, ".word " + from_instruction.text.substr(6));
-         // spdlog::warn("Unknown .word directive '{}'", from_instruction.text);
+          // spdlog::warn("Unknown .word directive '{}'", from_instruction.text);
         }
 
       } else if (from_instruction.text.starts_with(".byte")) {
@@ -973,8 +973,12 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
   const bool needs_mulhi3 = std::any_of(begin(instructions), end(instructions), [](const AVR &instruction) {
     return instruction.line_text.find("__mulhi3") != std::string::npos;
   });
+  const bool needs_mulqi3 = std::any_of(begin(instructions), end(instructions), [](const AVR &instruction) {
+    return instruction.line_text.find("__mulqi3") != std::string::npos;
+  });
 
   if (needs_mulhi3) { parse_string(__mulhi3); }
+  if (needs_mulqi3) { parse_string(__mulqi3); }
 
   std::set<std::string> labels;
 
@@ -995,13 +999,15 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
       check_label(i.operand2.value);
       check_label(std::string{ strip_gs(strip_offset(strip_negate(strip_lo_hi(i.operand1.value)))) });
       check_label(std::string{ strip_gs(strip_offset(strip_negate(strip_lo_hi(i.operand2.value)))) });
+
+
     } else if (i.type == ASMLine::Type::Directive) {
-      const auto matcher = ctre::match<R"(\s*.word\s*gs\((.*)\))">;
+      const auto matcher = ctre::match<R"(\s*.word\s*(.*))">;
 
       if (const auto results = matcher(i.text); results) {
         const auto matched_gs = results.get<1>().to_string();
-        spdlog::trace("matched gs: '{}' from '{}'", matched_gs, i.text);
-        check_label(matched_gs);
+        spdlog::trace("matched .word: '{}' from '{}'", matched_gs, i.text);
+        check_label(std::string{strip_gs(matched_gs)});
       }
     }
   }
@@ -1009,10 +1015,6 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
   const auto new_labels = [&used_labels]() {
     std::map<std::string, std::string> result;
     for (const auto &l : used_labels) {
-      //        auto newl = l;
-      //        std::transform(newl.begin(), newl.end(), newl.begin(), [](const auto c) { return std::tolower(c); });
-      //        newl.erase(std::remove_if(newl.begin(), newl.end(), [](const auto c) { return !std::isalnum(c); }),
-      //        std::end(newl));
 
       const auto new_label = [](auto label) -> std::string {
         if (label[0] == '.') { label.erase(0, 1); }
@@ -1044,10 +1046,28 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
       }
     }
 
+    if (i.type == ASMLine::Type::Directive) {
+      const auto matcher = ctre::match<R"(\s*.word\s*(.*))">;
+
+      if (const auto results = matcher(i.text); results) {
+        const auto matched_gs = results.get<1>().to_string();
+        const auto possible_label = std::string{ strip_gs(matched_gs) };
+        const auto matched_label = new_labels.find(possible_label);
+        if (matched_label != new_labels.end()) {
+          i.text = ".word " + matched_label->second;
+        }
+      }
+    }
+
     if (i.operand2.value.starts_with("lo8(") || i.operand2.value.starts_with("hi8(")) {
-      const auto potential_label = strip_lo_hi(i.operand2.value);
-      const auto itr1 = new_labels.find(std::string{ potential_label });
-      if (itr1 != new_labels.end()) { i.operand2.value.replace(4, potential_label.size(), itr1->second); }
+      const auto lo_hi_operand = strip_lo_hi(i.operand2.value);
+      const auto label_matcher = ctre::match<R"(([A-Za-z0-9.]+).*)">;
+
+      if (const auto results = label_matcher(lo_hi_operand); results) {
+        std::string_view potential_label = results.get<1>();
+        const auto itr1 = new_labels.find(std::string{ potential_label });
+        if (itr1 != new_labels.end()) { i.operand2.value.replace(4, potential_label.size(), itr1->second); }
+      }
     }
 
     const auto itr1 = new_labels.find(i.operand1.value);
@@ -1158,23 +1178,23 @@ int main(const int argc, const char **argv)
   const auto program_output_file = make_output_file_name(filename, "prg");
 
   std::string disabled_optimizations;
-/*
-  disabled_optimizations += " -fno-gcse-after-reload";
-  disabled_optimizations += " -fno-ipa-cp-clone";
-  disabled_optimizations += " -fno-loop-interchange";
-  disabled_optimizations += " -fno-loop-unroll-and-jam";
-  disabled_optimizations += " -fno-peel-loops";
-  disabled_optimizations += " -fno-predictive-commoning";
-  disabled_optimizations += " -fno-split-loops";
-  disabled_optimizations += " -fno-split-paths";
-  disabled_optimizations += " -fno-tree-loop-distribution";
-  disabled_optimizations += " -fno-tree-loop-vectorize";
-  disabled_optimizations += " -fno-tree-partial-pre";
-  disabled_optimizations += " -fno-tree-slp-vectorize";
-  disabled_optimizations += " -fno-unswitch-loops";
-  disabled_optimizations += " -fvect-cost-model=cheap";
-  disabled_optimizations += " -fno-version-loops-for-strides";
-  */
+  /*
+    disabled_optimizations += " -fno-gcse-after-reload";
+    disabled_optimizations += " -fno-ipa-cp-clone";
+    disabled_optimizations += " -fno-loop-interchange";
+    disabled_optimizations += " -fno-loop-unroll-and-jam";
+    disabled_optimizations += " -fno-peel-loops";
+    disabled_optimizations += " -fno-predictive-commoning";
+    disabled_optimizations += " -fno-split-loops";
+    disabled_optimizations += " -fno-split-paths";
+    disabled_optimizations += " -fno-tree-loop-distribution";
+    disabled_optimizations += " -fno-tree-loop-vectorize";
+    disabled_optimizations += " -fno-tree-partial-pre";
+    disabled_optimizations += " -fno-tree-slp-vectorize";
+    disabled_optimizations += " -fno-unswitch-loops";
+    disabled_optimizations += " -fvect-cost-model=cheap";
+    disabled_optimizations += " -fno-version-loops-for-strides";
+    */
 
   const std::string gcc_command = fmt::format(
     "avr-gcc -fverbose-asm -c -o {outfile} -S {warning_flags} -std=c++20 -mtiny-stack "

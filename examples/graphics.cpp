@@ -44,7 +44,8 @@ static void puts(uint8_t x, uint8_t y, std::string_view str)
 {
   const auto start = 0x400 + (y * 40 + x);
 
-  std::memcpy(const_cast<uint8_t *>(&memory_loc(start)), str.data(), str.size());
+  std::copy(str.begin(), str.end(), &memory_loc(start));
+//  std::memcpy(const_cast<uint8_t *>(&memory_loc(start)), str.data(), str.size());
 }
 
 
@@ -283,6 +284,13 @@ struct Screen
     }
   }
 
+  void hide(auto &s) {
+    if (s.is_shown) {
+      put_graphic(s.x, s.y, s.saved_background);
+      s.is_shown = false;
+    }
+  }
+
   void show(std::uint8_t x, std::uint8_t y, auto &s)
   {
     if (s.is_shown) { put_graphic(s.x, s.y, s.saved_background); }
@@ -309,9 +317,16 @@ struct GameState
   std::uint8_t x = 20;
   std::uint8_t y = 12;
 
+  bool redraw = true;
+
   Clock game_clock{};
 
   Map<10, 5> const *current_map = nullptr;
+
+  constexpr void set_current_map(const Map<10, 5> &new_map) {
+    current_map = &new_map;
+    redraw = true;
+  }
 
   constexpr void execute_actions(const auto &character) noexcept
   {
@@ -374,14 +389,14 @@ struct Map_Action
     }
 
     const std::uint8_t rect1_x1 = x;
-    const std::uint8_t rect1_x2 = x + width - 1;
+    const std::uint8_t rect1_x2 = x + width;
     const std::uint8_t rect1_y1 = y;
-    const std::uint8_t rect1_y2 = y + height - 1;
+    const std::uint8_t rect1_y2 = y + height;
 
     const std::uint8_t rect2_x1 = obj_x;
-    const std::uint8_t rect2_x2 = obj_x + obj_width - 1;
+    const std::uint8_t rect2_x2 = obj_x + obj_width;
     const std::uint8_t rect2_y1 = obj_y;
-    const std::uint8_t rect2_y2 = obj_y + obj_height - 1;
+    const std::uint8_t rect2_y2 = obj_y + obj_height;
 
     if (rect1_x1 < rect2_x2 && rect1_x2 > rect2_x1 &&
         rect1_y1 < rect2_y2 && rect1_y2 > rect2_y1) {
@@ -393,6 +408,7 @@ struct Map_Action
 
 template<std::uint8_t Width, std::uint8_t Height>
 struct Map {
+  std::string_view name;
   Graphic<Width, Height> layout;
 
   std::span<const Map_Action> actions;
@@ -401,6 +417,31 @@ struct Map {
 int main()
 {
   // static constexpr auto charset = load_charset(uppercase);
+
+  static constexpr auto inn = Graphic<6,5> {
+    32,233,160,160,223,32,
+    233,160,160,160,160,223,
+    160,137,142,142,160,160,
+    160,160,160,160,79,160,
+    160,160,160,160,76,160,
+  };
+
+  static constexpr auto gym = Graphic<6,5> {
+    32,233,160,160,223,32,
+    233,160,160,160,160,223,
+    160,135,153,141,160,160,
+    160,160,160,160,79,160,
+    160,160,160,160,76,160,
+  };
+
+  static constexpr auto trading_post = Graphic<6,5> {
+    32,233,160,160,223,32,
+    233,160,160,160,160,223,
+    148,146,129,132,133,160,
+    160,160,160,160,79,160,
+    160,160,160,160,76,160,
+  };
+
 
   static constexpr auto town = Graphic<4, 4>{ 
     85, 67, 67, 73,
@@ -420,11 +461,25 @@ int main()
     78, 79,
     78, 77 };
 
+  static constexpr auto city_map = Map<10, 5>{
+    "wood town",
+    {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 4, 0, 0, 0, 0, 6, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 5, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    },
+    std::span<const Map_Action>{}
+  };
+
+
   static constexpr auto overview_actions = std::array {
-    Map_Action { 12,0,4,4, [](GameState &g) { g.x = 30; g.y=5; } }
+    Map_Action { 16,0,4,4, [](GameState &g) { g.set_current_map(city_map); } }
   };
 
   static constexpr auto overview_map = Map<10, 5>{
+    "the world",
     {
       3, 1, 1, 0, 3, 0, 0, 0, 0, 0,
       0, 0, 1, 1, 0, 0, 0, 0, 3, 0,
@@ -435,12 +490,9 @@ int main()
     std::span<const Map_Action>(begin(overview_actions), end(overview_actions))
   };
 
-  cls();
 
-  poke(53280, 0);
-  poke(53281, 0);
 
-  static constexpr std::array<void (*)(std::uint8_t, std::uint8_t), 4> tile_types{
+  static constexpr std::array<void (*)(std::uint8_t, std::uint8_t), 7> tile_types{
     [](std::uint8_t x, std::uint8_t y) {
       /* do nothing for 0th */
     },
@@ -449,6 +501,9 @@ int main()
       /* do nothing for 2 */
     },
     [](std::uint8_t x, std::uint8_t y) { put_graphic(x, y, town); },
+    [](std::uint8_t x, std::uint8_t y) { put_graphic(x, y, inn); },
+    [](std::uint8_t x, std::uint8_t y) { put_graphic(x, y, gym); },
+    [](std::uint8_t x, std::uint8_t y) { put_graphic(x, y, trading_post); },
   };
 
 
@@ -483,10 +538,6 @@ int main()
   GameState game;
   game.current_map = &overview_map;
 
-  //  draw_map(map1);
-  draw_map(game.current_map->layout);
-  draw_box(0, 20, 40, 5);
-
   constexpr auto show_stats = [](const auto &cur_game) {
     puts(1, 21, "stamina:");
     put_hex(12, 21, cur_game.stamina);
@@ -499,8 +550,6 @@ int main()
   };
 
   Screen screen;
-
-  show_stats(game);
 
   auto eventHandler = overloaded{ [&](const GameState::JoyStick2StateChanged &e) {
                                    if (e.state.up()) { --game.y; }
@@ -518,6 +567,23 @@ int main()
 
   while (true) {
     std::visit(eventHandler, game.next_event());
+
+    if (game.redraw) {
+      screen.hide(character);
+      cls();
+
+      poke(53280, 0);
+      poke(53281, 0);
+
+      game.redraw = false;
+      draw_map(game.current_map->layout);
+      draw_box(0, 20, 40, 5);
+
+      puts(10, 20, game.current_map->name);
+      show_stats(game);
+      screen.show(game.x, game.y, character);
+    }
+
 
     increment_border_color();
   }

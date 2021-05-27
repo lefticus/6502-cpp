@@ -2,7 +2,7 @@
 static constexpr std::string_view __mulhi3 = 
 R"(
 ;;; based on protocol from gcc's calling conventions for AVR
-
+;;; 16x16 = 16 multiply
 ;;; R25:R24 = R23:R22 * R25:R24
 ;;; Clobbers: __tmp_reg__, R21..R23
 
@@ -33,3 +33,22 @@ __mulhi3:
 )";
 
 
+static constexpr std::string_view __mulqi3 =
+  R"(
+;;; based on protocol from gcc's calling conventions for AVR
+;;; 8x8 = 8 multiply
+;;; R24 = R22 * R24
+;;; Clobbers: __tmp_reg__, R22, R24
+
+__mulqi3:
+        ldi __temp_reg__,0
+__mulqi_1:
+        sbrc r24,0
+        add __temp_reg__,r22
+        lsr r24
+        lsl r22
+        cpse r24,__zero_reg__
+        rjmp __mulqi_1
+        mov r24, __temp_reg__
+        ret
+)";

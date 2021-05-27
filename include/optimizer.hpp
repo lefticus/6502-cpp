@@ -285,13 +285,15 @@ bool optimize(std::vector<mos6502> &instructions, [[maybe_unused]] const Persona
     }
   }
 
-  bool block_optimized = false;
+  bool optimizer_run = false;
   for (auto &block : get_optimizable_blocks(instructions)) {
-    block_optimized = block_optimized || optimize_redundant_lda_after_sta(block)
+    const bool block_optimized = optimize_redundant_lda_after_sta(block)
                       || optimize_dead_sta(block, personality) || optimize_dead_tax(block)
                       || optimize_redundant_ldy(block) || optimize_redundant_lda(block, personality);
+
+    optimizer_run = optimizer_run || block_optimized;
   }
-  return block_optimized;
+  return optimizer_run;
 }
 
 #endif// INC_6502_CPP_OPTIMIZER_HPP
