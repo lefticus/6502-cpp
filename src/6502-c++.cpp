@@ -94,6 +94,7 @@ struct AVR : ASMLine
     andi,
 
     breq,
+    brge,
     brlo,
     brne,
     brsh,
@@ -207,6 +208,7 @@ struct AVR : ASMLine
       if (o == "nop") { return OpCode::nop; }
       if (o == "jmp") { return OpCode::jmp; }
       if (o == "tst") { return OpCode::tst; }
+      if (o=="brge"){ return OpCode::brge; }
     }
     }
     throw std::runtime_error(fmt::format("Unknown opcode: {}", o));
@@ -268,6 +270,24 @@ void indirect_store(std::vector<mos6502> &instructions,
   instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, from_address));
   instructions.emplace_back(mos6502::OpCode::ldy, Operand(Operand::Type::literal, fmt::format("#{}", offset)));
   instructions.emplace_back(mos6502::OpCode::sta, Operand(Operand::Type::literal, "(" + to_address_low_byte + "), Y"));
+}
+
+
+// returns the "s_set","s_clear" labels to use for later
+[[nodiscard]] std::pair<std::string, std::string> setup_S_flag(std::vector<mos6502> &instructions)
+{
+  const auto location = instructions.size();
+  std::string n_set = fmt::format("n_set_{}", location);
+  std::string s_set = fmt::format("s_set_{}", location);
+  std::string s_clear = fmt::format("s_clear_{}", location);
+
+  instructions.emplace_back(mos6502::OpCode::bmi, Operand(Operand::Type::literal, n_set));
+  instructions.emplace_back(mos6502::OpCode::bvs, Operand(Operand::Type::literal, s_set));
+  instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, s_clear));
+  instructions.emplace_back(ASMLine::Type::Label, n_set);
+  instructions.emplace_back(mos6502::OpCode::bvs, Operand(Operand::Type::literal, s_clear));
+  instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, s_set));
+  return {s_set, s_clear};
 }
 
 void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
@@ -480,6 +500,13 @@ void translate_instruction(const Personality &personality,
     }
 
     throw std::runtime_error("Unhandled 'std'");
+  }
+  case AVR::OpCode::brge: {
+    const auto [s_set, s_clear] = setup_S_flag(instructions);
+    instructions.emplace_back(ASMLine::Type::Label, s_clear);
+    instructions.emplace_back(mos6502::OpCode::jmp, o1);
+    instructions.emplace_back(ASMLine::Type::Label, s_set);
+    return;
   }
   case AVR::OpCode::sub: {
     instructions.emplace_back(mos6502::OpCode::sec);

@@ -19,6 +19,7 @@ struct mos6502 : ASMLine
     bmi,
     bne,
     bpl,
+    bvs,
 
     cpx,
     cpy,
@@ -79,6 +80,7 @@ struct mos6502 : ASMLine
     case OpCode::bpl:
     case OpCode::bcc:
     case OpCode::bcs:
+    case OpCode::bvs:
       return true;
     case OpCode::adc:
     case OpCode::AND:
@@ -145,6 +147,7 @@ struct mos6502 : ASMLine
     case OpCode::bpl:
     case OpCode::bcc:
     case OpCode::bcs:
+    case OpCode::bvs:
     case OpCode::clc:
     case OpCode::dec:
     case OpCode::dex:
@@ -251,6 +254,7 @@ struct mos6502 : ASMLine
     case OpCode::cpx: return "cpx";
     case OpCode::dey: return "dey";
     case OpCode::iny: return "iny";
+    case OpCode::bvs: return "bvs";
     case OpCode::unknown: return "";
     }
 
