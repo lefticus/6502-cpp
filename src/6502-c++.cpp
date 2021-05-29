@@ -95,6 +95,7 @@ struct AVR : ASMLine
 
     breq,
     brge,
+    brlt,
     brlo,
     brne,
     brsh,
@@ -127,6 +128,7 @@ struct AVR : ASMLine
 
     nop,
 
+    OR,
     out,
 
     pop,
@@ -208,7 +210,9 @@ struct AVR : ASMLine
       if (o == "nop") { return OpCode::nop; }
       if (o == "jmp") { return OpCode::jmp; }
       if (o == "tst") { return OpCode::tst; }
-      if (o=="brge"){ return OpCode::brge; }
+      if (o == "brge"){ return OpCode::brge; }
+      if (o == "brlt") { return OpCode::brlt; }
+      if (o == "or") { return OpCode::OR; }
     }
     }
     throw std::runtime_error(fmt::format("Unknown opcode: {}", o));
@@ -410,6 +414,12 @@ void translate_instruction(const Personality &personality,
   const auto o2_reg_num = translate_register_number(o2);
 
   switch (op) {
+  case AVR::OpCode::OR: {
+    instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::ORA, personality.get_register(o2_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
+    return;
+  }
   case AVR::OpCode::jmp: instructions.emplace_back(mos6502::OpCode::jmp, o1); return;
   case AVR::OpCode::tst: {
     // just an lda will set the relevant flags that the tst operation sets, so I think this is
@@ -500,6 +510,13 @@ void translate_instruction(const Personality &personality,
     }
 
     throw std::runtime_error("Unhandled 'std'");
+  }
+  case AVR::OpCode::brlt: {
+    const auto [s_set, s_clear] = setup_S_flag(instructions);
+    instructions.emplace_back(ASMLine::Type::Label, s_set);
+    instructions.emplace_back(mos6502::OpCode::jmp, o1);
+    instructions.emplace_back(ASMLine::Type::Label, s_clear);
+    return;
   }
   case AVR::OpCode::brge: {
     const auto [s_set, s_clear] = setup_S_flag(instructions);

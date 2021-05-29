@@ -5,10 +5,45 @@
 #include <span>
 #include <string_view>
 #include <variant>
+#include <algorithm>
 
 #include "chargen.hpp"
 
-enum Colors : uint8_t { WHITE = 0x01 };
+enum struct Colors : std::uint8_t
+{
+  black = 0,
+  white = 1,
+  red = 2,
+  cyan=3,
+  violet=4,
+  green=5,
+  blue=6,
+  yellow=7,
+  orange=8,
+  brown=9,
+  light_red=10,
+  dark_grey=11,
+  grey=12,
+  light_green=13,
+  light_blue=14,
+  light_grey=15
+};
+
+constexpr char charToPETSCII(char c) noexcept {
+  if (c >= 'A' && c <= 'Z')  {
+    return c - 'A' + 1;
+  }
+  return c;
+}
+
+template<std::size_t Size>
+constexpr auto PETSCII(const char (&value)[Size]) noexcept
+{
+  std::array<char, Size-1> result{};
+  std::transform(std::begin(value), std::prev(std::end(value)), std::begin(result), charToPETSCII);
+  return result;
+}
+
 
 static volatile uint8_t &memory_loc(const uint16_t loc) { return *reinterpret_cast<volatile uint8_t *>(loc); }
 
@@ -40,14 +75,17 @@ static bool joystick_down()
 
 void use_data(std::array<char, 1024> &data);
 
-static void puts(uint8_t x, uint8_t y, std::string_view str)
+static void puts(uint8_t x, uint8_t y, const auto &range, const Colors color=Colors::white)
 {
-  const auto start = 0x400 + (y * 40 + x);
+  const auto offset = y * 40 + x;
 
-  std::copy(str.begin(), str.end(), &memory_loc(start));
-//  std::memcpy(const_cast<uint8_t *>(&memory_loc(start)), str.data(), str.size());
+  const auto start = 0x400 + offset;
+  std::copy(begin(range), end(range), &memory_loc(start));
+
+  for (std::uint16_t color_loc = 0; color_loc < range.size(); ++color_loc) {
+    poke(0xD800 + color_loc + offset, static_cast<std::uint8_t>(color));
+  }
 }
-
 
 template<std::uint8_t Width, std::uint8_t Height> struct Graphic
 {
@@ -184,10 +222,12 @@ static constexpr auto from_pixels_to_2x2(const Graphic<InWidth, InHeight> &pixel
   return result;
 }
 
-static void putc(uint8_t x, uint8_t y, uint8_t c)
+static void putc(uint8_t x, uint8_t y, uint8_t c, Colors color)
 {
-  const auto start = 0x400 + (y * 40 + x);
+  const auto offset = (y * 40 + x);
+  const auto start = 0x400 + offset;
   poke(start, c);
+  poke(offset + 0xD800, static_cast<std::uint8_t>(color));
 }
 
 static std::uint8_t loadc(uint8_t x, uint8_t y)
@@ -197,13 +237,13 @@ static std::uint8_t loadc(uint8_t x, uint8_t y)
 }
 
 
-static void put_hex(uint8_t x, uint8_t y, uint8_t value)
+static void put_hex(uint8_t x, uint8_t y, uint8_t value, Colors color)
 {
-  const auto put_nibble = [](auto x, auto y, uint8_t nibble) {
+  const auto put_nibble = [color](auto x, auto y, uint8_t nibble) {
     if (nibble <= 9) {
-      putc(x, y, nibble + 48);
+      putc(x, y, nibble + 48, color);
     } else {
-      putc(x, y, nibble - 9);
+      putc(x, y, nibble - 9, color);
     }
   };
 
@@ -211,16 +251,16 @@ static void put_hex(uint8_t x, uint8_t y, uint8_t value)
   put_nibble(x, y, 0xF & (value >> 4));
 }
 
-static void put_hex(uint8_t x, uint8_t y, uint16_t value)
+static void put_hex(uint8_t x, uint8_t y, uint16_t value, Colors color)
 {
-  put_hex(x + 2, y, static_cast<std::uint8_t>(0xFF & value));
-  put_hex(x, y, static_cast<std::uint8_t>(0xFF & (value >> 8)));
+  put_hex(x + 2, y, static_cast<std::uint8_t>(0xFF & value), color);
+  put_hex(x, y, static_cast<std::uint8_t>(0xFF & (value >> 8)), color);
 }
 
 static void put_graphic(uint8_t x, uint8_t y, const auto &graphic)
 {
   for (uint8_t cur_y = 0; cur_y < graphic.height(); ++cur_y) {
-    for (uint8_t cur_x = 0; cur_x < graphic.width(); ++cur_x) { putc(cur_x + x, cur_y + y, graphic(cur_x, cur_y)); }
+    for (uint8_t cur_x = 0; cur_x < graphic.width(); ++cur_x) { putc(cur_x + x, cur_y + y, graphic(cur_x, cur_y), Colors::white); }
   }
 }
 
@@ -517,20 +557,20 @@ int main()
     }
   };
 
-  constexpr auto draw_box = [](uint8_t x, uint8_t y, uint8_t width, uint8_t height) {
-    putc(x, y, 85);
-    putc(x + width - 1, y, 73);
-    putc(x + width - 1, y + height - 1, 75);
-    putc(x, y + height - 1, 74);
+  constexpr auto draw_box = [](uint8_t x, uint8_t y, uint8_t width, uint8_t height, Colors color) {
+    putc(x, y, 85, color);
+    putc(x + width - 1, y, 73, color);
+    putc(x + width - 1, y + height - 1, 75, color);
+    putc(x, y + height - 1, 74, color);
 
     for (uint8_t cur_x = x + 1; cur_x < x + width - 1; ++cur_x) {
-      putc(cur_x, y, 67);
-      putc(cur_x, y + height - 1, 67);
+      putc(cur_x, y, 67, color);
+      putc(cur_x, y + height - 1, 67, color);
     }
 
     for (uint8_t cur_y = y + 1; cur_y < y + height - 1; ++cur_y) {
-      putc(x, cur_y, 93);
-      putc(x + width - 1, cur_y, 93);
+      putc(x, cur_y, 93, color);
+      putc(x + width - 1, cur_y, 93, color);
     }
   };
 
@@ -539,14 +579,14 @@ int main()
   game.current_map = &overview_map;
 
   constexpr auto show_stats = [](const auto &cur_game) {
-    puts(1, 21, "stamina:");
-    put_hex(12, 21, cur_game.stamina);
-    put_hex(15, 21, cur_game.max_stamina());
-    puts(14, 21, "/");
-    puts(1, 22, "endurance:");
-    put_hex(12, 22, cur_game.endurance);
-    puts(1, 23, "cash: ");
-    put_hex(12, 23, cur_game.cash);
+    puts(1, 21, PETSCII("STAMINA:"), Colors::light_grey);
+    put_hex(12, 21, cur_game.stamina, Colors::white);
+    put_hex(15, 21, cur_game.max_stamina(), Colors::white);
+    puts(14, 21, PETSCII("/"), Colors::light_grey);
+    puts(1, 22, PETSCII("ENDURANCE:"), Colors::light_grey);
+    put_hex(12, 22, cur_game.endurance, Colors::white);
+    puts(1, 23, PETSCII("CASH:"), Colors::light_grey);
+    put_hex(12, 23, cur_game.cash, Colors::white);
   };
 
   Screen screen;
@@ -561,9 +601,9 @@ int main()
 
                                    screen.show(game.x, game.y, character);
 
-                                   put_hex(36, 1, e.state.state);
+                                   put_hex(36, 1, e.state.state, Colors::dark_grey);
                                  },
-    [](const GameState::TimeElapsed &e) { put_hex(36, 0, e.us.count()); } };
+    [](const GameState::TimeElapsed &e) { put_hex(36, 0, e.us.count(), Colors::dark_grey); } };
 
   while (true) {
     std::visit(eventHandler, game.next_event());
@@ -577,9 +617,9 @@ int main()
 
       game.redraw = false;
       draw_map(game.current_map->layout);
-      draw_box(0, 20, 40, 5);
+      draw_box(0, 20, 40, 5, Colors::dark_grey);
 
-      puts(10, 20, game.current_map->name);
+      puts(10, 20, game.current_map->name, Colors::white);
       show_stats(game);
       screen.show(game.x, game.y, character);
     }
