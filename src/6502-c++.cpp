@@ -210,7 +210,7 @@ struct AVR : ASMLine
       if (o == "nop") { return OpCode::nop; }
       if (o == "jmp") { return OpCode::jmp; }
       if (o == "tst") { return OpCode::tst; }
-      if (o == "brge"){ return OpCode::brge; }
+      if (o == "brge") { return OpCode::brge; }
       if (o == "brlt") { return OpCode::brlt; }
       if (o == "or") { return OpCode::OR; }
     }
@@ -291,7 +291,7 @@ void indirect_store(std::vector<mos6502> &instructions,
   instructions.emplace_back(ASMLine::Type::Label, n_set);
   instructions.emplace_back(mos6502::OpCode::bvs, Operand(Operand::Type::literal, s_clear));
   instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, s_set));
-  return {s_set, s_clear};
+  return { s_set, s_clear };
 }
 
 void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
@@ -313,7 +313,7 @@ void fixup_16_bit_N_Z_flags(std::vector<mos6502> &instructions)
   // if low order byte is negative, just load 1, this will properly set the Z flag and leave C correct
   instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#1"));
   instructions.emplace_back(ASMLine::Type::Label, set_flag_label);
-  instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda, bcc, bcs, ldy");
+  instructions.emplace_back(ASMLine::Type::Directive, "; END remove if next is lda, bcc, bcs, ldy, inc, clc, sec");
 }
 
 void add_16_bit(const Personality &personality,
@@ -617,7 +617,7 @@ void translate_instruction(const Personality &personality,
   case AVR::OpCode::cpse: {
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
     instructions.emplace_back(mos6502::OpCode::cmp, personality.get_register(o2_reg_num));
-    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
+    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
     instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
     instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
     return;
@@ -626,7 +626,7 @@ void translate_instruction(const Personality &personality,
     instructions.emplace_back(
       mos6502::OpCode::lda, Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (to_int(o2.value))))));
     instructions.emplace_back(mos6502::OpCode::bit, personality.get_register(o1_reg_num));
-    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
+    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
     instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
     instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
     return;
@@ -635,7 +635,7 @@ void translate_instruction(const Personality &personality,
     instructions.emplace_back(mos6502::OpCode::lda,
       Operand(o2.type, fixup_8bit_literal("$" + std::to_string(1 << (to_int(o2.value.c_str()))))));
     instructions.emplace_back(mos6502::OpCode::bit, personality.get_register(o1_reg_num));
-    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
+    std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
     instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_label_name));
     instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
     return;
@@ -646,7 +646,7 @@ void translate_instruction(const Personality &personality,
       return;
     } else if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
-      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
       instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, new_label_name));
       instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
       return;
@@ -688,7 +688,6 @@ void translate_instruction(const Personality &personality,
     instructions.emplace_back(mos6502::OpCode::lda, Operand(Operand::Type::literal, "#$FF"));
     instructions.emplace_back(mos6502::OpCode::eor, personality.get_register(o1_reg_num));
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
-    instructions.emplace_back(mos6502::OpCode::sec);
     return;
   }
   case AVR::OpCode::clr: {
@@ -708,7 +707,7 @@ void translate_instruction(const Personality &personality,
 
     if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
-      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
       instructions.emplace_back(mos6502::OpCode::bcc, Operand(Operand::Type::literal, new_label_name));
       instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
       return;
@@ -773,7 +772,7 @@ void translate_instruction(const Personality &personality,
   case AVR::OpCode::brsh: {
     if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcs instead of bcc
-      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
       instructions.emplace_back(mos6502::OpCode::bcs, Operand(Operand::Type::literal, new_label_name));
       instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
       return;
@@ -816,7 +815,7 @@ void translate_instruction(const Personality &personality,
   case AVR::OpCode::breq: {
     if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
-      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size()) + "__optimizable";
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
       instructions.emplace_back(mos6502::OpCode::beq, Operand(Operand::Type::literal, new_label_name));
       instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
       return;
@@ -857,7 +856,7 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
 
         if (const auto results = matcher(from_instruction.text); results) {
           const auto matched_gs = results.get<1>().to_string();
-          instructions.emplace_back(ASMLine::Type::Directive, ".word " + std::string{strip_gs(matched_gs)});
+          instructions.emplace_back(ASMLine::Type::Directive, ".word " + std::string{ strip_gs(matched_gs) });
         } else {
           instructions.emplace_back(ASMLine::Type::Directive, ".word " + from_instruction.text.substr(6));
           // spdlog::warn("Unknown .word directive '{}'", from_instruction.text);
@@ -925,7 +924,7 @@ bool fix_long_branches(std::vector<mos6502> &instructions, int &branch_patch_cou
 
   for (size_t op = 0; op < instructions.size(); ++op) {
     if (instructions[op].is_branch
-        && std::abs(static_cast<int>(labels[instructions[op].op.value]) - static_cast<int>(op)) * 3 > 255) {
+        && std::abs(static_cast<int>(labels[instructions[op].op.value]) - static_cast<int>(op)) * 4 > 255) {
       ++branch_patch_count;
       const auto going_to = instructions[op].op.value;
       const auto new_pos = "patch_" + std::to_string(branch_patch_count);
@@ -1051,7 +1050,7 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
       if (const auto results = matcher(i.text); results) {
         const auto matched_gs = results.get<1>().to_string();
         spdlog::trace("matched .word: '{}' from '{}'", matched_gs, i.text);
-        check_label(std::string{strip_gs(matched_gs)});
+        check_label(std::string{ strip_gs(matched_gs) });
       }
     }
   }
@@ -1086,6 +1085,7 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
           i.text = new_labels.at(i.text);
         } catch (...) {
           spdlog::warn("Unused label: '{}', consider making function static until we remove unused functions", i.text);
+          i.text = "; Label is unused: " + i.text;
         }
       }
     }
@@ -1097,9 +1097,7 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
         const auto matched_gs = results.get<1>().to_string();
         const auto possible_label = std::string{ strip_gs(matched_gs) };
         const auto matched_label = new_labels.find(possible_label);
-        if (matched_label != new_labels.end()) {
-          i.text = ".word " + matched_label->second;
-        }
+        if (matched_label != new_labels.end()) { i.text = ".word " + matched_label->second; }
       }
     }
 
@@ -1131,30 +1129,33 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
   new_instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, "main"));
 
 
-  int instructions_to_skip = 0;
+  int instructions_to_skip = -1;
   std::string next_label_name;
   for (const auto &i : instructions) {
     to_mos6502(personality, i, new_instructions);
 
     // intentionally copy so we don't invalidate the reference
     const auto last_instruction = new_instructions.back();
-    const auto last_instruction_loc = new_instructions.size() - 1;
 
-    if (instructions_to_skip == 1) { new_instructions.emplace_back(ASMLine::Type::Label, next_label_name); }
+    if (i.type == ASMLine::Type::Instruction) { --instructions_to_skip; }
+    if (instructions_to_skip == 0) {
+      new_instructions.emplace_back(ASMLine::Type::Label, next_label_name);
+      // todo: I kind of hate this -1 as a marker
+      instructions_to_skip = -1;
+    }
 
-    --instructions_to_skip;
 
     if (last_instruction.type == ASMLine::Type::Directive
         && last_instruction.text.starts_with("skip_next_instruction")) {
       instructions_to_skip = 1;
       next_label_name = last_instruction.text;
-      new_instructions.erase(std::next(new_instructions.begin(), static_cast<std::ptrdiff_t>(last_instruction_loc)));
+      new_instructions.pop_back();
     }
     if (last_instruction.type == ASMLine::Type::Directive
         && last_instruction.text.starts_with("skip_next_2_instructions")) {
       instructions_to_skip = 2;
       next_label_name = last_instruction.text;
-      new_instructions.erase(std::next(new_instructions.begin(), static_cast<std::ptrdiff_t>(last_instruction_loc)));
+      new_instructions.pop_back();
     }
   }
 

@@ -121,7 +121,7 @@ bool optimize_dead_sta(std::span<mos6502> &block, const Personality &personality
   for (auto itr = block.begin(); itr != block.end(); ++itr) {
     if (itr->opcode == mos6502::OpCode::sta && is_virtual_register_op(*itr, personality)) {
       for (auto inner = std::next(itr); inner != block.end(); ++inner) {
-        if (inner->op.value.find('(') != std::string::npos) {
+        if (not inner->op.value.starts_with("#<(") && inner->op.value.find('(') != std::string::npos) {
           // this is an indexed operation, which is risky to optimize a sta around on the virtual registers,
           // so we'll skip this block
           break;
@@ -260,9 +260,11 @@ bool optimize(std::vector<mos6502> &instructions, [[maybe_unused]] const Persona
   // it might make sense in the future to only insert these if determined they are needed?
   for (size_t op = 10; op < instructions.size(); ++op) {
     if (instructions[op].opcode == mos6502::OpCode::lda || instructions[op].opcode == mos6502::OpCode::bcc
-        || instructions[op].opcode == mos6502::OpCode::bcs || instructions[op].opcode == mos6502::OpCode::ldy) {
-      if (instructions[op - 1].text == "; END remove if next is lda, bcc, bcs, ldy"
-          || (instructions[op - 2].text == "; END remove if next is lda, bcc, bcs, ldy"
+        || instructions[op].opcode == mos6502::OpCode::bcs || instructions[op].opcode == mos6502::OpCode::ldy
+        || instructions[op].opcode == mos6502::OpCode::inc || instructions[op].opcode == mos6502::OpCode::clc
+        || instructions[op].opcode == mos6502::OpCode::sec) {
+      if (instructions[op - 1].text == "; END remove if next is lda, bcc, bcs, ldy, inc, clc, sec"
+          || (instructions[op - 2].text == "; END remove if next is lda, bcc, bcs, ldy, inc, clc, sec"
               && instructions[op - 1].type == ASMLine::Type::Directive)) {
         for (size_t inner_op = op - 1; inner_op > 1; --inner_op) {
           instructions[inner_op] =
