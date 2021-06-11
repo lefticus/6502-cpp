@@ -285,6 +285,7 @@ void indirect_store(std::vector<mos6502> &instructions,
   std::string s_set = fmt::format("s_set_{}", location);
   std::string s_clear = fmt::format("s_clear_{}", location);
 
+  instructions.emplace_back(ASMLine::Type::Directive, "; Handle N / S flags from AVR");
   instructions.emplace_back(mos6502::OpCode::bmi, Operand(Operand::Type::literal, n_set));
   instructions.emplace_back(mos6502::OpCode::bvs, Operand(Operand::Type::literal, s_set));
   instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, s_clear));

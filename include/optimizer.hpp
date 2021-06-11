@@ -262,7 +262,7 @@ bool optimize(std::vector<mos6502> &instructions, [[maybe_unused]] const Persona
     if (instructions[op].opcode == mos6502::OpCode::lda || instructions[op].opcode == mos6502::OpCode::bcc
         || instructions[op].opcode == mos6502::OpCode::bcs || instructions[op].opcode == mos6502::OpCode::ldy
         || instructions[op].opcode == mos6502::OpCode::inc || instructions[op].opcode == mos6502::OpCode::clc
-        || instructions[op].opcode == mos6502::OpCode::sec) {
+        || instructions[op].opcode == mos6502::OpCode::sec || instructions[op].text.starts_with("; Handle N / S")) {
       if (instructions[op - 1].text == "; END remove if next is lda, bcc, bcs, ldy, inc, clc, sec"
           || (instructions[op - 2].text == "; END remove if next is lda, bcc, bcs, ldy, inc, clc, sec"
               && instructions[op - 1].type == ASMLine::Type::Directive)) {
