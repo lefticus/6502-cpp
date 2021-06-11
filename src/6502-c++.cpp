@@ -1137,6 +1137,18 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
       }
     }
 
+    if (const auto plus = i.operand1.value.find('+'); plus != std::string::npos)
+    {
+      const auto str = i.operand1.value.substr(0, plus);
+      const auto itr1 = new_labels.find(str);
+      if (itr1 != new_labels.end()) { i.operand1.value.replace(0, plus, itr1->second); }
+    }
+    if (const auto plus = i.operand2.value.find('+'); plus != std::string::npos) {
+      const auto str = i.operand2.value.substr(0, plus);
+      const auto itr1 = new_labels.find(str);
+      if (itr1 != new_labels.end()) { i.operand2.value.replace(0, plus, itr1->second); }
+    }
+
     const auto itr1 = new_labels.find(i.operand1.value);
     if (itr1 != new_labels.end()) { i.operand1.value = itr1->second; }
 
