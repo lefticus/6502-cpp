@@ -513,16 +513,41 @@ void translate_instruction(const Personality &personality,
   }
   case AVR::OpCode::brlt: {
     const auto [s_set, s_clear] = setup_S_flag(instructions);
-    instructions.emplace_back(ASMLine::Type::Label, s_set);
-    instructions.emplace_back(mos6502::OpCode::jmp, o1);
-    instructions.emplace_back(ASMLine::Type::Label, s_clear);
-    return;
+
+
+    if (o1.value == ".+2") {
+      // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      instructions.emplace_back(ASMLine::Type::Label, s_set);
+      instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, new_label_name));
+      instructions.emplace_back(ASMLine::Type::Label, s_clear);
+      instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
+      return;
+    } else {
+      instructions.emplace_back(ASMLine::Type::Label, s_set);
+      instructions.emplace_back(mos6502::OpCode::jmp, o1);
+      instructions.emplace_back(ASMLine::Type::Label, s_clear);
+      return;
+    }
   }
   case AVR::OpCode::brge: {
     const auto [s_set, s_clear] = setup_S_flag(instructions);
-    instructions.emplace_back(ASMLine::Type::Label, s_clear);
-    instructions.emplace_back(mos6502::OpCode::jmp, o1);
-    instructions.emplace_back(ASMLine::Type::Label, s_set);
+    if (o1.value == ".+2") {
+      // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
+      std::string new_label_name = "skip_next_instruction_" + std::to_string(instructions.size());
+      instructions.emplace_back(ASMLine::Type::Label, s_clear);
+      instructions.emplace_back(mos6502::OpCode::jmp, Operand(Operand::Type::literal, new_label_name));
+      instructions.emplace_back(ASMLine::Type::Label, s_set);
+      instructions.emplace_back(ASMLine::Type::Directive, new_label_name);
+      return;
+    } else {
+      instructions.emplace_back(ASMLine::Type::Label, s_clear);
+      instructions.emplace_back(mos6502::OpCode::jmp, o1);
+      instructions.emplace_back(ASMLine::Type::Label, s_set);
+      return;
+    }
+
+
     return;
   }
   case AVR::OpCode::sub: {
