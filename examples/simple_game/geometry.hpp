@@ -10,8 +10,6 @@ struct point
   std::uint8_t y;
 
   [[nodiscard]] constexpr auto operator<=>(const point &other) const = default;
-  //  [[nodiscard]] constexpr bool operator==(const point &other) const = default;
-  //  [[nodiscard]] constexpr bool operator!=(const point &other) const = default;
 };
 
 constexpr point operator+(const point &lhs, const point &rhs) noexcept
@@ -33,12 +31,9 @@ struct rect
   [[nodiscard]] constexpr std::uint8_t top() const noexcept { return tl.y; }
   [[nodiscard]] constexpr std::uint8_t bottom() const noexcept
   {
-    return static_cast<std::uint8_t>(tl.y + size_.height - 1);
+    return static_cast<std::uint8_t>(tl.y + size_.height);
   }
-  [[nodiscard]] constexpr std::uint8_t right() const noexcept
-  {
-    return static_cast<std::uint8_t>(tl.x + size_.width - 1);
-  }
+  [[nodiscard]] constexpr std::uint8_t right() const noexcept { return static_cast<std::uint8_t>(tl.x + size_.width); }
 
   [[nodiscard]] constexpr const point &top_left() const noexcept { return tl; }
   [[nodiscard]] constexpr point bottom_right() const noexcept { return point{ right(), bottom() }; }
@@ -49,6 +44,7 @@ struct rect
 
   [[nodiscard]] constexpr const auto &size() const noexcept { return size_; }
 
+  // returns a rectangle of this size, but centered in the screen (40x20)
   [[nodiscard]] constexpr auto centered() const noexcept
   {
     return rect{
@@ -64,7 +60,7 @@ struct rect
     const auto other_tl = other.top_left();
     const auto other_br = other.bottom_right();
 
-    return my_tl <= other_tl && my_br >= other_br;
+    return my_tl.x < other_br.x && my_br.x > other_tl.x && my_tl.y < other_br.y && my_br.y > other_tl.y;
   };
 
   point tl;

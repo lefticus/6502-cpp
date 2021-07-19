@@ -13,6 +13,8 @@
 
 struct GameState;
 
+using Square_Passable = bool (*)(const std::uint8_t type) noexcept;
+
 struct Map_Action
 {
   geometry::rect box;
@@ -20,55 +22,107 @@ struct Map_Action
   using Action_Func = void (*)(GameState &);
   Action_Func action = nullptr;
 
-  constexpr void execute_if_collision(geometry::rect object,
-    GameState &game) const
+  constexpr void execute_if_collision(geometry::rect object, GameState &game) const
   {
     if (action == nullptr) { return; }
 
     if (box.intersects(object)) { action(game); }
-
   }
 };
 
 
-template<geometry::size Size> struct Map
+template<geometry::size Size, std::size_t Scale> struct Map
 {
   std::string_view name;
   petscii::Graphic<Size> layout;
-
+  Square_Passable passable = nullptr;
+  std::uint8_t step_scale;
   std::span<const Map_Action> actions;
+
+  [[nodiscard]] constexpr std::uint8_t location_value(geometry::point loc) const noexcept
+  {
+    const auto descaled_location =
+      geometry::point{ static_cast<std::uint8_t>(loc.x / Scale), static_cast<std::uint8_t>(loc.y / Scale) };
+    return layout[descaled_location];
+  }
+
+  [[nodiscard]] constexpr bool location_passable(geometry::point loc, geometry::size obj_size) const noexcept
+  {
+    if (passable != nullptr) {
+      for (const auto &p : obj_size) {
+        if (!passable(location_value(p + loc))) { return false; }
+      }
+      return true;
+    }
+    return false;
+  }
 };
 
 struct GameState
 {
+  enum struct State { Walking, SystemMenu, AboutBox, Exit, AlmostDead };
+  State state = State::Walking;
 
-  std::uint8_t endurance{ 10 };
+  std::uint8_t endurance{ 8 };
   std::uint8_t stamina{ max_stamina() };
   std::uint16_t cash{ 100 };
+  std::uint8_t step_counter{ 0 };
+  std::uint8_t stamina_counter{ 0 };
   geometry::point location{ 20, 12 };
 
   bool redraw = true;
+  bool redraw_stats = true;
 
   c64::Clock game_clock{};
 
-  Map<geometry::size{ 10, 5 }> const *current_map = nullptr;
+  Map<geometry::size{ 10, 5 }, 4> const *current_map = nullptr;
+  Map<geometry::size{ 10, 5 }, 4> const *last_map = nullptr;
 
-  constexpr void set_current_map(const Map<geometry::size{ 10, 5 }> &new_map)
+  constexpr void goto_last_map(geometry::point new_location)
   {
-    current_map = &new_map;
+    std::swap(current_map, last_map);
+    location = new_location;
+    redraw = true;
+  }
+
+  constexpr void set_current_map(const Map<geometry::size{ 10, 5 }, 4> &new_map)
+  {
+    last_map = std::exchange(current_map, &new_map);
     redraw = true;
   }
 
   constexpr void execute_actions(geometry::point new_location, const auto &character) noexcept
   {
     if (new_location.x + character.size().width > 40) { new_location.x = location.x; }
-
     if (new_location.y + character.size().height > 20) { new_location.y = location.y; }
 
-    location = new_location;
 
-    if (current_map) {
-      for (auto &action : current_map->actions) { action.execute_if_collision({location, character.size()}, *this); }
+    if (current_map && current_map->location_passable(new_location, character.size())) {
+      step_counter += current_map->step_scale;
+
+      while (step_counter >= endurance) {
+        redraw_stats = true;
+        step_counter -= endurance;
+
+        if (stamina == 1) {
+          state = State::AlmostDead;
+        } else {
+          stamina -= 1;
+        }
+
+        stamina_counter += 1;
+
+        if (stamina_counter == endurance * 3) {
+          endurance += 1;
+          stamina_counter = 0;
+        }
+      }
+
+      location = new_location;
+
+      for (const auto &action : current_map->actions) {
+        action.execute_if_collision({ location, character.size() }, *this);
+      }
     }
   }
 
@@ -232,6 +286,66 @@ template<class... Ts> struct overloaded : Ts...
 template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 
+struct TextBox
+{
+  consteval TextBox(std::span<const std::string_view> t_lines)
+    : lines{ t_lines }, box{ geometry::rect{ { 0, 0 },
+                          { static_cast<std::uint8_t>(
+                              std::max_element(begin(lines),
+                                end(lines),
+                                [](std::string_view lhs, std::string_view rhs) { return lhs.size() < rhs.size(); })
+                                ->size()
+                              + 1),
+                            static_cast<std::uint8_t>(lines.size() + 1) } }
+                               .centered() }
+  {}
+
+  void hide(GameState &game)
+  {
+    displayed = false;
+    game.redraw = true;
+  }
+
+  bool show([[maybe_unused]] GameState &game)
+  {
+    if (!displayed) {
+      displayed = true;
+
+      clear(box, vicii::Colors::grey);
+      draw_box(box, vicii::Colors::white);
+
+      for (auto pos = box.top_left() + geometry::point{ 1, 1 }; const auto &str : lines) {
+        puts(pos, str, vicii::Colors::grey);
+        pos = pos + geometry::point{ 0, 1 };
+      }
+    }
+
+    if (selected) {
+      selected = false;
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  bool process_event(const GameState::Event &e)
+  {
+    if (not displayed) { return false; }
+
+    if (const auto *ptr = std::get_if<GameState::JoyStick2StateChanged>(&e); ptr) {
+      if (ptr->state.fire()) { selected = true; }
+      return true;
+    }
+
+    return false;
+  }
+
+  std::span<const std::string_view> lines;
+  geometry::rect box;
+  bool selected{ false };
+  bool displayed{ false };
+};
+
 struct Menu
 {
   consteval Menu(std::span<const std::string_view> t_options)
@@ -241,8 +355,8 @@ struct Menu
                                     end(options),
                                     [](std::string_view lhs, std::string_view rhs) { return lhs.size() < rhs.size(); })
                                     ->size()
-                                  + 2),
-                                static_cast<std::uint8_t>(options.size() + 2) } }
+                                  + 1),
+                                static_cast<std::uint8_t>(options.size() + 1) } }
                                    .centered() }
 
   {}
@@ -250,7 +364,7 @@ struct Menu
   void highlight(std::uint8_t selection)
   {
     const auto cur_y = static_cast<std::uint8_t>(selection + 1 + box.top_left().y);
-    for (std::uint8_t cur_x = 1; cur_x < box.width() - 1; ++cur_x) {
+    for (std::uint8_t cur_x = 1; cur_x < box.width(); ++cur_x) {
       vicii::invertc(geometry::point{ static_cast<std::uint8_t>(box.top_left().x + cur_x), cur_y });
     }
   }
@@ -268,6 +382,7 @@ struct Menu
     if (!displayed) {
       displayed = true;
 
+      clear(box, vicii::Colors::grey);
       draw_box(box, vicii::Colors::white);
 
       for (auto pos = box.top_left() + geometry::point{ 1, 1 }; const auto &str : options) {
@@ -298,11 +413,22 @@ struct Menu
     if (not displayed) { return false; }
 
     if (const auto *ptr = std::get_if<GameState::JoyStick2StateChanged>(&e); ptr) {
-      if (ptr->state.up()) { next_selection = current_selection - 1; }
+      // wrap around up and down during selection
+      if (ptr->state.up()) {
+        if (current_selection == 0) {
+          next_selection = static_cast<std::uint8_t>(options.size() - 1);
+        } else {
+          next_selection = current_selection - 1;
+        }
+      }
 
-      if (ptr->state.down()) { next_selection = current_selection + 1; }
-
-      if (next_selection > options.size() - 1) { next_selection = static_cast<std::uint8_t>(options.size() - 1); }
+      if (ptr->state.down()) {
+        if (current_selection == options.size() - 1) {
+          next_selection = 0;
+        } else {
+          next_selection = current_selection + 1;
+        }
+      }
 
       if (ptr->state.fire()) { selected = true; }
 
@@ -320,8 +446,6 @@ struct Menu
   bool displayed{ false };
 };
 
-
-enum struct State { Walking, SystemMenu, AboutBox };
 
 int main()
 {
@@ -352,14 +476,6 @@ int main()
     160,160,160,160,76,160,
   };
 
-/*
-  static constexpr auto town = Graphic<4, 4>{ 
-    85, 67, 67, 73,
-    93, 233, 223, 93,
-    93, 160, 160, 93,
-    74, 67, 67, 75 };
-*/
-
   static constexpr auto town = petscii::ColoredGraphic<geometry::size{4, 4}>{
     { 
       32, 32,32, 32,
@@ -375,15 +491,7 @@ int main()
     }
   };
 
-/*
-  static constexpr auto mountain = petscii::Graphic<geometry::size{4, 4}>{
-    32, 78, 77, 32,
-    32, 32, 78, 77,
-    78, 77, 32, 32,
-    32, 78, 77, 32 };
-  */
-
-  static constexpr auto colored_mountain = petscii::ColoredGraphic<geometry::size{4, 4}>{
+  static constexpr auto mountain = petscii::ColoredGraphic<geometry::size{4, 4}>{
     {
     32, 78, 77, 32,
     32, 32, 233, 223,
@@ -404,7 +512,92 @@ int main()
     78, 79,
     78, 77 };
 
-  static constexpr auto city_map = Map<geometry::size{10,5}>{
+  static constexpr auto ore_town_actions = std::array {
+    Map_Action { {{0,19},{40,1}}, [](GameState &g) { g.goto_last_map({0, 4}); } },
+  };
+
+  static constexpr auto ore_town = Map<geometry::size{10,5}, 4>{
+    "ore town",
+    {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+      0, 4, 0, 0, 0, 0, 6, 0, 0, 1,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+      0, 0, 5, 0, 0, 0, 0, 0, 0, 1,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    },
+    [](const std::uint8_t type) noexcept { return type != 1; },
+    1,
+    ore_town_actions
+  };
+
+  static constexpr auto wool_town_actions = std::array {
+    Map_Action { {{0,0},{1,20}}, [](GameState &g) { g.goto_last_map({6, 12}); } },
+    Map_Action { {{39,0},{1,20}}, [](GameState &g) { g.goto_last_map({12, 12}); } },
+  };
+
+  static constexpr auto wool_town = Map<geometry::size{10,5}, 4>{
+    "wool town",
+    {
+      1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+      0, 4, 0, 0, 0, 0, 6, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 5, 0, 0, 0, 0, 0, 0, 0,
+      1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    },
+    [](const std::uint8_t type) noexcept { return type != 1; },
+    1,
+    wool_town_actions
+  };
+
+  static constexpr auto wheat_town_actions = std::array {
+    Map_Action { {{0,0},{1,20}}, [](GameState &g) { g.goto_last_map({22, 16}); } },
+    Map_Action { {{39,0},{1,20}}, [](GameState &g) { g.goto_last_map({28, 16}); } },
+    Map_Action { {{0,0},{40,1}}, [](GameState &g) { g.goto_last_map({22, 13}); } },
+  };
+
+
+  static constexpr auto wheat_town = Map<geometry::size{10,5}, 4>{
+    "wheat town",
+    {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 4, 0, 0, 0, 0, 6, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 5, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    },
+    [](const std::uint8_t type) noexcept { return type != 1; },
+    1,
+    wheat_town_actions
+  };
+
+  static constexpr auto brick_town_actions = std::array {
+    Map_Action { {{0,0},{1,20}}, [](GameState &g) { g.goto_last_map({30, 4}); } },
+    Map_Action { {{39,0},{1,20}}, [](GameState &g) { g.goto_last_map({36, 4}); } },
+    Map_Action { {{0,0},{40,1}}, [](GameState &g) { g.goto_last_map({32, 0}); } },
+    Map_Action { {{0,19},{40,1}}, [](GameState &g) { g.goto_last_map({32, 8}); } },
+  };
+
+  static constexpr auto brick_town = Map<geometry::size{10,5}, 4>{
+    "brick town",
+    {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 4, 0, 0, 0, 0, 6, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 5, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    },
+    [](const std::uint8_t type) noexcept { return type != 1; },
+    1,
+    brick_town_actions
+  };
+
+  static constexpr auto wood_town_actions = std::array {
+    Map_Action { {{0,0},{1,20}}, [](GameState &g) { g.goto_last_map({14, 0}); } },
+    Map_Action { {{39,0},{1,20}}, [](GameState &g) { g.goto_last_map({20, 0}); } },
+    Map_Action { {{0,19},{40,1}}, [](GameState &g) { g.goto_last_map({16, 4}); } },
+  };
+
+  static constexpr auto wood_town = Map<geometry::size{10,5}, 4>{
     "wood town",
     {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -413,15 +606,21 @@ int main()
       0, 0, 5, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     },
-    std::span<const Map_Action>{}
+    [](const std::uint8_t type) noexcept { return type != 1; },
+    1,
+    wood_town_actions
   };
 
 
   static constexpr auto overview_actions = std::array {
-    Map_Action { {{16,0},{4,4}}, [](GameState &g) { g.set_current_map(city_map); } }
-  };
+    Map_Action { {{0,0},{4,4}}, [](GameState &g) { g.set_current_map(ore_town); } },
+    Map_Action { {{8,12},{4,4}}, [](GameState &g) { g.set_current_map(wool_town); } },
+    Map_Action { {{24,16},{4,4}}, [](GameState &g) { g.set_current_map(wheat_town); } },
+    Map_Action { {{32,4},{4,4}}, [](GameState &g) { g.set_current_map(brick_town); } },
+    Map_Action { {{16,0},{4,4}}, [](GameState &g) { g.set_current_map(wood_town); } }
+};
 
-  static constexpr auto overview_map = Map<geometry::size{10, 5}>{
+  static constexpr auto overview_map = Map<geometry::size{10, 5}, 4>{
     "the world",
     {
       3, 1, 1, 0, 3, 0, 0, 0, 0, 0,
@@ -430,14 +629,16 @@ int main()
       0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
       0, 1, 1, 1, 0, 0, 3, 0, 0, 0,
     },
-    std::span<const Map_Action>(begin(overview_actions), end(overview_actions))
+    [](const std::uint8_t type) noexcept { return type != 1; },
+    10,
+    overview_actions
   };
   // clang-format on
 
 
   static constexpr std::array<void (*)(geometry::point), 7> tile_types{
     [](geometry::point) {},
-    [](geometry::point p) { vicii::put_graphic(p, colored_mountain); },
+    [](geometry::point p) { vicii::put_graphic(p, mountain); },
     [](geometry::point) {},
     [](geometry::point p) { vicii::put_graphic(p, town); },
     [](geometry::point p) { vicii::put_graphic(p, inn); },
@@ -449,13 +650,15 @@ int main()
   const auto draw_map = [](const auto &map) {
     for (std::size_t tile = 0; tile < tile_types.size(); ++tile) {
       for (const auto &pos : map.size()) {
-        if (map[pos] == tile) { tile_types[tile]({static_cast<std::uint8_t>(pos.x * 4), static_cast<std::uint8_t>(pos.y * 4)}); }
+        if (map[pos] == tile) {
+          tile_types[tile]({ static_cast<std::uint8_t>(pos.x * 4), static_cast<std::uint8_t>(pos.y * 4) });
+        }
       }
     }
   };
 
   GameState game;
-  State state = State::Walking;
+  game.state = GameState::State::Walking;
   game.current_map = &overview_map;
 
   constexpr auto show_stats = [](const auto &cur_game) {
@@ -471,19 +674,35 @@ int main()
 
   vicii::Screen screen;
 
-  static constexpr auto menu_options = std::array{ std::string_view{ "info" },
-    std::string_view{ "test2" },
-    std::string_view{ "test3" },
-    std::string_view{ "an even longer thing" } };
+  static constexpr auto menu_options = std::array{ std::string_view{ "about game" }, std::string_view{ "exit menu" } };
 
   Menu m(menu_options);
 
+  static constexpr auto url = petscii::PETSCII("HTTPS://GITHUB.COM/LEFTICUS/6502-CPP");
+
+  static constexpr auto about_text = std::array{ std::string_view{ "created in c++20 by jason turner" },
+    std::string_view{ "using an automated conversion of" },
+    std::string_view{ "gcc generated avr code to 6502" },
+    std::string_view{ "assembly." },
+    std::string_view{ url.data(), url.size() } };
+
+  TextBox about_box(about_text);
+
+  static constexpr auto almost_dead_text = std::array{ std::string_view{ "you became so exhausted that you" },
+    std::string_view{ "passed out and passers by stole" },
+    std::string_view{ "some of your cash and items." },
+    std::string_view{ "" },
+    std::string_view{ "a kind soul has dropped you off at a" },
+    std::string_view{ "nearby inn." } };
+
+  TextBox almost_dead(almost_dead_text);
 
   auto eventHandler = overloaded{ [&](const GameState::JoyStick2StateChanged &e) {
                                    auto new_loc = game.location;
+                                   put_hex({ 36, 1 }, e.state.state, vicii::Colors::dark_grey);
 
                                    if (e.state.fire()) {
-                                     state = State::SystemMenu;
+                                     game.state = GameState::State::SystemMenu;
                                      return;
                                    }
 
@@ -492,19 +711,20 @@ int main()
                                    if (e.state.left()) { --new_loc.x; }
                                    if (e.state.right()) { ++new_loc.x; }
 
-
-                                   game.execute_actions(new_loc, character.graphic);
-
-                                   screen.show(game.location, character);
-
-                                   put_hex({36, 1}, e.state.state, vicii::Colors::dark_grey);
+                                   if (new_loc != game.location) {
+                                     game.execute_actions(new_loc, character.graphic);
+                                     screen.show(game.location, character);
+                                   }
                                  },
-    [](const GameState::TimeElapsed &e) { vicii::put_hex({36, 0}, e.us.count(), vicii::Colors::dark_grey); } };
+    [](const GameState::TimeElapsed &e) {
+      vicii::put_hex({ 36, 0 }, e.us.count(), vicii::Colors::dark_grey);
+    } };
 
-  while (true) {
+  while (game.state != GameState::State::Exit) {
     const auto next_event = game.next_event();
 
-    if (not m.process_event(next_event)) {
+    if (not m.process_event(next_event) && not about_box.process_event(next_event)
+        && not almost_dead.process_event(next_event)) {
       // if no gui elements needed the event, then we handle it
       std::visit(eventHandler, next_event);
     }
@@ -517,37 +737,37 @@ int main()
       mos6502::poke(53281, 0);
 
       game.redraw = false;
+      game.redraw_stats = true;
       draw_map(game.current_map->layout);
-      draw_box(geometry::rect{ { 0, 20 }, { 40, 5 } }, vicii::Colors::dark_grey);
+      draw_box(geometry::rect{ { 0, 20 }, { 39, 4 } }, vicii::Colors::dark_grey);
 
       puts(geometry::point{ 10, 20 }, game.current_map->name, vicii::Colors::white);
-      show_stats(game);
+
       screen.show(game.location, character);
     }
 
-    if (std::uint8_t result = 0; state == State::SystemMenu && m.show(game, result)) {
+    if (game.redraw_stats) {
+      show_stats(game);
+      game.redraw_stats = false;
+    }
+
+    if (std::uint8_t result = 0; game.state == GameState::State::SystemMenu && m.show(game, result)) {
       // we had a menu item selected
       m.hide(game);
-      if (result == 0) {}
-
-
-      vicii::increment_border_color();
-    }
-
-    /*
-    const auto background_color = [](Colors col) {
-      memory_loc(0xd021) = static_cast<uint8_t>(col);
-    };
-
-    background_color(Colors::WHITE);
-
-    while(true) {
-      if (joystick_down()) {
-        increment_border_color();
+      if (result == 0) {
+        game.state = GameState::State::AboutBox;
       } else {
-        decrement_border_color();
+        game.state = GameState::State::Walking;
       }
+    } else if (game.state == GameState::State::AboutBox && about_box.show(game)) {
+      about_box.hide(game);
+      game.state = GameState::State::Walking;
+    } else if (game.state == GameState::State::AlmostDead && almost_dead.show(game)) {
+      almost_dead.hide(game);
+      game.set_current_map(wheat_town);
+      game.cash /= 2;
+      game.stamina = game.max_stamina();
+      game.state = GameState::State::Walking;
     }
-    */
   }
 }

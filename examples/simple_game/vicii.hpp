@@ -27,7 +27,7 @@ enum struct Colors : std::uint8_t {
 
 [[maybe_unused]] static void decrement_border_color() { mos6502::poke(0xd020, mos6502::peek(0xd020) - 1); }
 
-static void increment_border_color() { mos6502::poke(0xd020, mos6502::peek(0xd020) + 1); }
+// static void increment_border_color() { mos6502::poke(0xd020, mos6502::peek(0xd020) + 1); }
 
 static void putc(geometry::point location, std::uint8_t c, Colors color)
 {
@@ -119,7 +119,7 @@ struct Screen
   }
 };
 
-void draw_vline(geometry::point begin, const geometry::point end, Colors c)
+static void draw_vline(geometry::point begin, const geometry::point end, Colors c)
 {
   while (begin < end) {
     putc(begin, 93, c);
@@ -127,7 +127,7 @@ void draw_vline(geometry::point begin, const geometry::point end, Colors c)
   }
 }
 
-void draw_hline(geometry::point begin, const geometry::point end, Colors c)
+static void draw_hline(geometry::point begin, const geometry::point end, Colors c)
 {
   while (begin < end) {
     putc(begin, 67, c);
@@ -135,7 +135,7 @@ void draw_hline(geometry::point begin, const geometry::point end, Colors c)
   }
 }
 
-void draw_box(geometry::rect geo, Colors color)
+static void draw_box(geometry::rect geo, Colors color)
 {
   putc(geo.top_left(), 85, color);
   putc(geo.top_right(), 73, color);
@@ -148,6 +148,13 @@ void draw_box(geometry::rect geo, Colors color)
   draw_vline(geo.top_left() + geometry::point{ 0, 1 }, geo.bottom_left(), color);
   draw_vline(geo.top_right() + geometry::point{ 0, 1 }, geo.bottom_right(), color);
 }
+
+void clear(geometry::rect box, Colors color) {
+  for (const auto &p : box.size()) {
+    putc(p + box.top_left(), ' ', color);
+  }
+}
+
 }// namespace vicii
 
 #endif// INC_6502_C_VICII_HPP
