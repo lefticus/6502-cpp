@@ -20,6 +20,9 @@ struct Joystick
   [[nodiscard]] constexpr bool fire() const noexcept { return (state & 16) == 0; }
   [[nodiscard]] constexpr bool right() const noexcept { return (state & 8) == 0; }
   [[nodiscard]] constexpr bool down() const noexcept { return (state & 2) == 0; }
+
+  [[nodiscard]] constexpr bool operator==(const Joystick &other) const = default;
+  [[nodiscard]] constexpr bool operator!=(const Joystick &other) const = default;
 };
 
 struct Clock

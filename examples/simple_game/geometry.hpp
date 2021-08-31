@@ -2,6 +2,7 @@
 #define INC_6502_C_GEOMETRY_HPP
 
 #include <cstdint>
+#include <compare>
 
 namespace geometry {
 struct point

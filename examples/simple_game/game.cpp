@@ -161,42 +161,7 @@ struct GameState
   }
 };
 
-static void puts(const geometry::point loc, const auto &range, const vicii::Colors color = vicii::Colors::white)
-{
-  const auto offset = static_cast<std::uint16_t>(loc.y * 40 + loc.x);
 
-  const std::uint16_t start = 0x400 + offset;
-  std::copy(begin(range), end(range), &mos6502::memory_loc(start));
-
-  for (std::uint16_t color_loc = 0; color_loc < range.size(); ++color_loc) {
-    mos6502::poke(static_cast<std::uint16_t>(0xD800 + color_loc + offset), static_cast<std::uint8_t>(color));
-  }
-}
-
-static constexpr auto load_charset(const std::span<const std::uint8_t, 256 * 8> &bits)
-{
-  std::array<petscii::Graphic<geometry::size{ 8, 8 }>, 256> results{};
-
-  for (std::size_t idx = 0; idx < 256; ++idx) {
-    petscii::Graphic<geometry::size{ 8, 8 }> glyph{};
-
-    for (std::uint8_t row = 0; row < 8; ++row) {
-      const auto input_row = bits[idx * 8 + row];
-      glyph[geometry::point{ 0, row }] = (0b1000'0000 & input_row) == 0 ? 0 : 1;
-      glyph[geometry::point{ 0, row }] = (0b0100'0000 & input_row) == 0 ? 0 : 1;
-      glyph[geometry::point{ 0, row }] = (0b0010'0000 & input_row) == 0 ? 0 : 1;
-      glyph[geometry::point{ 0, row }] = (0b0001'0000 & input_row) == 0 ? 0 : 1;
-      glyph[geometry::point{ 0, row }] = (0b0000'1000 & input_row) == 0 ? 0 : 1;
-      glyph[geometry::point{ 0, row }] = (0b0000'0100 & input_row) == 0 ? 0 : 1;
-      glyph[geometry::point{ 0, row }] = (0b0000'0010 & input_row) == 0 ? 0 : 1;
-      glyph[geometry::point{ 0, row }] = (0b0000'0001 & input_row) == 0 ? 0 : 1;
-    }
-
-    results[idx] = glyph;
-  }
-
-  return results;
-}
 
 template<geometry::size Size> static constexpr auto from_pixels_to_petscii(const petscii::Graphic<Size> &pixels)
 {
@@ -222,44 +187,6 @@ template<geometry::size Size> static constexpr auto from_pixels_to_petscii(const
       }
 
       result(x / 8, y / 8) = best_match;
-    }
-  }
-
-  return result;
-}
-
-
-template<geometry::size Size> static constexpr auto from_pixels_to_2x2(const petscii::Graphic<Size> &pixels)
-{
-  petscii::Graphic<geometry::size{ Size.width / 2, Size.height / 2 }> result{};
-
-  using GlyphType = std::pair<petscii::Graphic<geometry::size{ 2, 2 }>, std::uint8_t>;
-  constexpr std::array<GlyphType, 17> lookup_map{ GlyphType{ { 0, 0, 0, 0 }, 32 },
-    GlyphType{ { 1, 0, 0, 0 }, 126 },
-    GlyphType{ { 0, 1, 0, 0 }, 124 },
-    GlyphType{ { 1, 1, 0, 0 }, 226 },
-    GlyphType{ { 0, 0, 1, 0 }, 123 },
-    GlyphType{ { 1, 0, 1, 0 }, 97 },
-    GlyphType{ { 0, 1, 1, 0 }, 255 },
-    GlyphType{ { 1, 1, 1, 0 }, 236 },
-    GlyphType{ { 0, 0, 0, 1 }, 108 },
-    GlyphType{ { 1, 0, 0, 1 }, 127 },
-    GlyphType{ { 0, 1, 0, 1 }, 225 },
-    GlyphType{ { 1, 1, 0, 1 }, 251 },
-    GlyphType{ { 0, 0, 1, 1 }, 98 },
-    GlyphType{ { 1, 0, 1, 1 }, 252 },
-    GlyphType{ { 0, 1, 1, 1 }, 254 },
-    GlyphType{ { 1, 1, 1, 1 }, 160 } };
-
-
-  for (uint8_t x = 0; x < pixels.width(); x += 2) {
-    for (uint8_t y = 0; y < pixels.height(); y += 2) {
-      for (const auto &glyph : lookup_map) {
-        if (pixels.match(glyph.first, x, y)) {
-          result(x / 2, y / 2) = glyph.second;
-          break;// go to next Y, we found our match
-        }
-      }
     }
   }
 

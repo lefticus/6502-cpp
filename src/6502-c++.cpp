@@ -92,6 +92,7 @@ struct AVR : ASMLine
     adiw,
     add,
     andi,
+    asr,
 
     breq,
     brge,
@@ -129,6 +130,7 @@ struct AVR : ASMLine
     nop,
 
     OR,
+    ori,
     out,
 
     pop,
@@ -182,6 +184,7 @@ struct AVR : ASMLine
       if (o == "lds") { return OpCode::lds; }
       if (o == "lsr") { return OpCode::lsr; }
       if (o == "andi") { return OpCode::andi; }
+      if (o == "asr") { return OpCode::asr; }
       if (o == "eor") { return OpCode::eor; }
       if (o == "sbrc") { return OpCode::sbrc; }
       if (o == "rjmp") { return OpCode::rjmp; }
@@ -213,6 +216,7 @@ struct AVR : ASMLine
       if (o == "brge") { return OpCode::brge; }
       if (o == "brlt") { return OpCode::brlt; }
       if (o == "or") { return OpCode::OR; }
+      if (o == "ori") { return OpCode::ori; }
     }
     }
     throw std::runtime_error(fmt::format("Unknown opcode: {}", o));
@@ -395,6 +399,12 @@ void increment_16_bit(const Personality &personality, std::vector<mos6502> &inst
   instructions.emplace_back(ASMLine::Type::Label, skip_high_byte_label);
 }
 
+void decrement_16_bit(const Personality &personality, std::vector<mos6502> &instructions, int reg)
+{
+  subtract_16_bit(personality, instructions, reg, 1);
+}
+
+
 void translate_instruction(const Personality &personality,
   std::vector<mos6502> &instructions,
   const AVR::OpCode op,
@@ -418,6 +428,12 @@ void translate_instruction(const Personality &personality,
   case AVR::OpCode::OR: {
     instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
     instructions.emplace_back(mos6502::OpCode::ORA, personality.get_register(o2_reg_num));
+    instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
+    return;
+  }
+  case AVR::OpCode::ori: {
+    instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::ORA, Operand(o2.type, fixup_8bit_literal(o2.value)));
     instructions.emplace_back(mos6502::OpCode::sta, personality.get_register(o1_reg_num));
     return;
   }
@@ -617,6 +633,13 @@ void translate_instruction(const Personality &personality,
       increment_16_bit(personality, instructions, AVR::get_register_number(o1.value[0]));
       return;
     }
+    if (o1.value == "-Z" || o1.value == "-Y" || o1.value == "-X") {
+      decrement_16_bit(personality, instructions, AVR::get_register_number(o1.value[1]));
+      indirect_store(instructions,
+        personality.get_register(o2_reg_num).value,
+        personality.get_register(AVR::get_register_number(o1.value[1])).value);
+      return;
+    }
     throw std::runtime_error("Unhandled st");
   }
   case AVR::OpCode::lds: {
@@ -626,6 +649,12 @@ void translate_instruction(const Personality &personality,
   }
   case AVR::OpCode::lsr: {
     instructions.emplace_back(mos6502::OpCode::lsr, personality.get_register(o1_reg_num));
+    return;
+  }
+  case AVR::OpCode::asr: {
+    instructions.emplace_back(mos6502::OpCode::lda, personality.get_register(o1_reg_num));
+    instructions.emplace_back(mos6502::OpCode::asl);
+    instructions.emplace_back(mos6502::OpCode::ror, personality.get_register(o1_reg_num));
     return;
   }
   case AVR::OpCode::andi: {
@@ -669,6 +698,9 @@ void translate_instruction(const Personality &personality,
   case AVR::OpCode::brne: {
     if (o1.value == "0b") {
       instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, "memcpy_0"));
+      return;
+    } else if (o1.value == "1b") {
+      instructions.emplace_back(mos6502::OpCode::bne, Operand(Operand::Type::literal, "mul2_1"));
       return;
     } else if (o1.value == ".+2") {
       // assumes 6502 'borrow' for Carry flag instead of carry, so bcc instead of bcs
@@ -869,13 +901,52 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
     case ASMLine::Type::Label:
       if (from_instruction.text == "0") {
         instructions.emplace_back(from_instruction.type, "-memcpy_0");
+      } else if (from_instruction.text == "1") {
+        instructions.emplace_back(from_instruction.type, "-mul2_1");
       } else {
         instructions.emplace_back(from_instruction.type, from_instruction.text);
       }
       return;
     case ASMLine::Type::Directive:
-      if (from_instruction.text.starts_with(".string")) {
-        instructions.emplace_back(ASMLine::Type::Directive, ".asc " + from_instruction.text.substr(7));
+      if (from_instruction.text.starts_with(".string") || from_instruction.text.starts_with(".ascii")) {
+        const auto &text = from_instruction.text;
+        const auto start = [=]() -> std::size_t {
+          if (text.starts_with(".string")) {
+            return 9;
+          } else {
+            return 8;
+          }
+        }();
+
+        const auto isdigit = [](char c){
+          return c <= '9' && c >= '0';
+        };
+
+        for (std::size_t pos = start; text[pos] != '"'; ++pos) {
+          if (text[pos] != '\\') {
+            instructions.emplace_back(ASMLine::Type::Directive, fmt::format(".byt ${:02x}", static_cast<std::uint8_t>(text[pos])));
+          } else {
+            if (text[pos+1] == 'f') {
+              instructions.emplace_back(ASMLine::Type::Directive, fmt::format(".byt ${:02x}", 014));
+              ++pos;
+            } else if (isdigit(text[pos+1]) && isdigit(text[pos+2]) && isdigit(text[pos+3])) {
+              std::string octal = "0";
+              octal += text[pos+1];
+              octal += text[pos+2];
+              octal += text[pos+3];
+              instructions.emplace_back(ASMLine::Type::Directive, fmt::format(".byt ${:02x}", std::stoi(octal, nullptr, 8)));
+              pos += 3;
+            } else {
+              spdlog::error(
+                  "[{}]: Unhandled .string escape: '{}': {}", from_instruction.line_num, from_instruction.line_text, text[pos+1]);
+
+            }
+          }
+        }
+
+        if (text.starts_with(".string")) {
+          instructions.emplace_back(ASMLine::Type::Directive, ".byt 0"); // terminating byte
+        }
       } else if (from_instruction.text.starts_with(".word")) {
 
         const auto matcher = ctre::match<R"(\s*.word\s*(.*))">;
@@ -1129,17 +1200,19 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
 
     if (i.operand2.value.starts_with("lo8(") || i.operand2.value.starts_with("hi8(")) {
       const auto lo_hi_operand = strip_lo_hi(i.operand2.value);
-      const auto label_matcher = ctre::match<R"(([A-Za-z0-9.]+).*)">;
+      const auto label_matcher = ctre::match<R"(-?\(?([A-Za-z0-9.]+).*)">;
 
       if (const auto results = label_matcher(lo_hi_operand); results) {
         std::string_view potential_label = results.get<1>();
+        const auto start = std::distance(std::string_view{i.operand2.value}.begin(), potential_label.begin());
+        spdlog::trace("Label matched: '{}'", potential_label);
         const auto itr1 = new_labels.find(std::string{ potential_label });
-        if (itr1 != new_labels.end()) { i.operand2.value.replace(4, potential_label.size(), itr1->second); }
+        if (itr1 != new_labels.end()) { i.operand2.value.replace(static_cast<std::size_t>(start), potential_label.size(), itr1->second); }
+        spdlog::trace("New statement: '{}'", i.operand2.value);
       }
     }
 
-    if (const auto plus = i.operand1.value.find('+'); plus != std::string::npos)
-    {
+    if (const auto plus = i.operand1.value.find('+'); plus != std::string::npos) {
       const auto str = i.operand1.value.substr(0, plus);
       const auto itr1 = new_labels.find(str);
       if (itr1 != new_labels.end()) { i.operand1.value.replace(0, plus, itr1->second); }
@@ -1232,23 +1305,31 @@ int main(const int argc, const char **argv)
   Target target{ Target::C64 };
   bool optimize{ true };
 
-  app.add_option("-f,--file", filename, "C++ file to compile")->required(true);
+  app.add_option("filename", filename, "C++ file to compile")->required(true);
   app.add_option("-t,--target", target, "6502 - based system to target")
     ->required(true)
     ->transform(CLI::CheckedTransformer(targets, CLI::ignore_case));
 
   std::string optimization_level;
   app.add_option("-O", optimization_level, "Optimization level to pass to GCC instance")
-    ->required(true)
-    ->check(CLI::IsMember({ "s", "0", "1", "2", "3" }));
+    ->required(false)
+    ->check(CLI::IsMember({ "s", "0", "1", "2", "3" }))
+    ->default_val("1");
+
   app.add_flag("--optimize", optimize, "Enable optimization of 6502 generated assembly")->default_val(true);
 
+  std::vector<std::string> include_paths;
+  app.add_option("-I", include_paths, "Extra include paths to pass to GCC instance")
+    ->required(false)
+    ->expected(1)
+    ->take_all();
 
   CLI11_PARSE(app, argc, argv)
 
+  
 
-  const std::string_view include_directories = "-I ~/avr-libstdcpp/include/";
-  const std::string_view warning_flags = "-Wall -Wextra";
+  include_paths.insert(include_paths.begin(), "~/avr-libstdcpp/include");
+  const std::string_view warning_flags = "-Wall -Wextra -Wconversion";
   const std::string_view avr = "avr3";
 
   const auto make_output_file_name = [](auto input_filename, const auto &new_extension) {
@@ -1280,13 +1361,13 @@ int main(const int argc, const char **argv)
     */
 
   const std::string gcc_command = fmt::format(
-    "avr-gcc -fverbose-asm -c -o {outfile} -S {warning_flags} -std=c++20 -mtiny-stack "
-    "-mmcu={avr} -O{optimization} {disabled_optimizations} {include_dirs} {infile}",
+    "avr-gcc -fverbose-asm -c -o {outfile} -S {warning_flags} -std=c++20 -mtiny-stack -fconstexpr-ops-limit=333554432 "
+    "-mmcu={avr} -O{optimization} {disabled_optimizations} -I {user_include_dirs} {infile}",
     fmt::arg("outfile", avr_output_file.generic_string()),
     fmt::arg("warning_flags", warning_flags),
     fmt::arg("avr", avr),
     fmt::arg("optimization", optimization_level),
-    fmt::arg("include_dirs", include_directories),
+    fmt::arg("user_include_dirs", fmt::join(include_paths, " -I ")),
     fmt::arg("disabled_optimizations", disabled_optimizations),
     fmt::arg("infile", filename.generic_string()));
 

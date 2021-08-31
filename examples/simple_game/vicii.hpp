@@ -2,7 +2,10 @@
 #define INC_6502_C_VICII_HPP
 
 #include "6502.hpp"
+#include "geometry.hpp"
 #include <cstdint>
+#include <algorithm>
+#include <iterator>
 
 namespace vicii {
 enum struct Colors : std::uint8_t {
@@ -29,7 +32,7 @@ enum struct Colors : std::uint8_t {
 
 // static void increment_border_color() { mos6502::poke(0xd020, mos6502::peek(0xd020) + 1); }
 
-static void putc(geometry::point location, std::uint8_t c, Colors color)
+static inline void putc(geometry::point location, std::uint8_t c, Colors color)
 {
   const auto offset = static_cast<std::uint16_t>(location.y * 40 + location.x);
   const auto start = static_cast<std::uint16_t>(0x400 + offset);
@@ -37,20 +40,44 @@ static void putc(geometry::point location, std::uint8_t c, Colors color)
   mos6502::poke(offset + 0xD800, static_cast<std::uint8_t>(color));
 }
 
-static std::uint8_t getc(geometry::point location)
+static inline std::uint8_t getc(geometry::point location)
 {
   const auto start = static_cast<std::uint16_t>(0x400 + (location.y * 40 + location.x));
   return mos6502::peek(start);
 }
 
-static void invertc(geometry::point location)
+static inline void invertc(geometry::point location)
 {
   const auto start = static_cast<std::uint16_t>(0x400 + (location.y * 40 + location.x));
   mos6502::memory_loc(start) += 128;
 }
 
+static inline void set_background(const vicii::Colors color) {
+  mos6502::poke(53280, static_cast<std::uint8_t>(color));
+}
 
-static void put_hex(geometry::point start, uint8_t value, Colors color)
+static inline void set_border(const vicii::Colors color) {
+  mos6502::poke(53281, static_cast<std::uint8_t>(color));
+}
+
+
+static inline void puts(const geometry::point loc, const auto &range, const vicii::Colors color = vicii::Colors::white)
+{
+  const auto offset = static_cast<std::uint16_t>(loc.y * 40 + loc.x);
+
+  const std::uint16_t start = 0x400 + offset;
+
+  using namespace std;
+
+  std::copy(begin(range), end(range), &mos6502::memory_loc(start));
+
+  for (std::uint16_t color_loc = 0; color_loc < size(range); ++color_loc) {
+    mos6502::poke(static_cast<std::uint16_t>(0xD800 + color_loc + offset), static_cast<std::uint8_t>(color));
+  }
+}
+
+
+static inline void put_hex(geometry::point start, uint8_t value, Colors color)
 {
   const auto put_nibble = [color](geometry::point location, std::uint8_t nibble) {
     if (nibble <= 9) {
@@ -64,18 +91,18 @@ static void put_hex(geometry::point start, uint8_t value, Colors color)
   put_nibble(start , 0xF & (value >> 4));
 }
 
-static void put_hex(geometry::point location, std::uint16_t value, Colors color)
+static inline void put_hex(geometry::point location, std::uint16_t value, Colors color)
 {
   put_hex(location, static_cast<std::uint8_t>(0xFF & (value >> 8)), color);
   put_hex(location + geometry::point{ 2, 0 }, static_cast<std::uint8_t>(0xFF & value), color);
 }
 
-static void put_graphic(geometry::point location, const auto &graphic)
+static inline void put_graphic(geometry::point location, const auto &graphic)
 {
   for (const auto &p : graphic.size()) { putc(p + location, graphic[p], Colors::white); }
 }
 
-static void put_graphic(geometry::point location, const auto &graphic) requires requires { graphic.colors[{0, 0}]; }
+static inline void put_graphic(geometry::point location, const auto &graphic) requires requires { graphic.colors[{0, 0}]; }
 {
   for (const auto &p : graphic.data.size()) {
     putc(p + location, graphic.data[p], static_cast<Colors>(graphic.colors[p]));
@@ -83,7 +110,7 @@ static void put_graphic(geometry::point location, const auto &graphic) requires 
 }
 
 
-static void cls()
+static inline void cls()
 {
   for (std::uint16_t i = 0x400; i < 0x400 + 1000; ++i) { mos6502::poke(i, 32); }
 }
@@ -135,7 +162,7 @@ static void draw_hline(geometry::point begin, const geometry::point end, Colors 
   }
 }
 
-static void draw_box(geometry::rect geo, Colors color)
+static inline void draw_box(geometry::rect geo, Colors color)
 {
   putc(geo.top_left(), 85, color);
   putc(geo.top_right(), 73, color);
@@ -149,7 +176,7 @@ static void draw_box(geometry::rect geo, Colors color)
   draw_vline(geo.top_right() + geometry::point{ 0, 1 }, geo.bottom_right(), color);
 }
 
-void clear(geometry::rect box, Colors color) {
+static inline void clear(geometry::rect box, Colors color) {
   for (const auto &p : box.size()) {
     putc(p + box.top_left(), ' ', color);
   }
