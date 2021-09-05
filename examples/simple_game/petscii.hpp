@@ -8,6 +8,9 @@
 
 namespace petscii {
 
+enum named_chars : std::uint8_t {
+  closed_circle = 81
+};
 
 template<geometry::size size_> struct Graphic
 {
@@ -57,6 +60,7 @@ template<geometry::size size_> struct ColoredGraphic
   if (c >= 'a' && c <= 'z') { return c - 'a' + 1; }
   if (c >= 'A' && c <= 'Z') { return c - 'A' + 65; }
   if (c == '@') { return 0; }
+  if (c =='_') { return 100; }
   return c;
 }
 
@@ -68,13 +72,13 @@ template<geometry::size size_> struct ColoredGraphic
   return c;
 }
 
-template<std::size_t Size> consteval auto PETSCII2(const char (&value)[Size]) noexcept
+template<std::size_t Size> constexpr auto PETSCII2(const char (&value)[Size]) noexcept
 {
   std::array<char, Size - 1> result{};
   std::transform(std::begin(value), std::prev(std::end(value)), std::begin(result), charToPETSCII2);
   return result;
 }
-template<std::size_t Size> consteval auto PETSCII(const char (&value)[Size]) noexcept
+template<std::size_t Size> constexpr auto PETSCII(const char (&value)[Size]) noexcept
 {
   std::array<char, Size - 1> result{};
   std::transform(std::begin(value), std::prev(std::end(value)), std::begin(result), charToPETSCII);

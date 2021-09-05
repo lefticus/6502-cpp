@@ -918,34 +918,47 @@ void to_mos6502(const Personality &personality, const AVR &from_instruction, std
           }
         }();
 
-        const auto isdigit = [](char c){
-          return c <= '9' && c >= '0';
-        };
+        const auto isdigit = [](char c) { return c <= '9' && c >= '0'; };
 
         for (std::size_t pos = start; text[pos] != '"'; ++pos) {
           if (text[pos] != '\\') {
-            instructions.emplace_back(ASMLine::Type::Directive, fmt::format(".byt ${:02x}", static_cast<std::uint8_t>(text[pos])));
+            instructions.emplace_back(
+              ASMLine::Type::Directive, fmt::format(".byt ${:02x}", static_cast<std::uint8_t>(text[pos])));
           } else {
-            if (text[pos+1] == 'f') {
+            if (text[pos + 1] == 'f') {
               instructions.emplace_back(ASMLine::Type::Directive, fmt::format(".byt ${:02x}", 014));
               ++pos;
-            } else if (isdigit(text[pos+1]) && isdigit(text[pos+2]) && isdigit(text[pos+3])) {
+            } else if (text[pos + 1] == 'b') {
+              instructions.emplace_back(ASMLine::Type::Directive, fmt::format(".byt ${:02x}", '\b'));
+              ++pos;
+            } else if (text[pos + 1] == 't') {
+              instructions.emplace_back(ASMLine::Type::Directive, fmt::format(".byt ${:02x}", '\t'));
+              ++pos;
+            } else if (text[pos + 1] == 'r') {
+              instructions.emplace_back(ASMLine::Type::Directive, fmt::format(".byt ${:02x}", '\r'));
+              ++pos;
+            } else if (text[pos + 1] == '"') {
+              instructions.emplace_back(ASMLine::Type::Directive, fmt::format(".byt ${:02x}", '"'));
+              ++pos;
+            } else if (isdigit(text[pos + 1]) && isdigit(text[pos + 2]) && isdigit(text[pos + 3])) {
               std::string octal = "0";
-              octal += text[pos+1];
-              octal += text[pos+2];
-              octal += text[pos+3];
-              instructions.emplace_back(ASMLine::Type::Directive, fmt::format(".byt ${:02x}", std::stoi(octal, nullptr, 8)));
+              octal += text[pos + 1];
+              octal += text[pos + 2];
+              octal += text[pos + 3];
+              instructions.emplace_back(
+                ASMLine::Type::Directive, fmt::format(".byt ${:02x}", std::stoi(octal, nullptr, 8)));
               pos += 3;
             } else {
-              spdlog::error(
-                  "[{}]: Unhandled .string escape: '{}': {}", from_instruction.line_num, from_instruction.line_text, text[pos+1]);
-
+              spdlog::error("[{}]: Unhandled .string escape: '{}': {}",
+                from_instruction.line_num,
+                from_instruction.line_text,
+                text[pos + 1]);
             }
           }
         }
 
         if (text.starts_with(".string")) {
-          instructions.emplace_back(ASMLine::Type::Directive, ".byt 0"); // terminating byte
+          instructions.emplace_back(ASMLine::Type::Directive, ".byt 0");// terminating byte
         }
       } else if (from_instruction.text.starts_with(".word")) {
 
@@ -1177,6 +1190,8 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
     if (i.type == ASMLine::Type::Label) {
       if (i.text == "0") {
         i.text = "-memcpy_0";
+      } else if (i.text == "1") {
+        i.text = "-mul2_1";
       } else {
         try {
           i.text = new_labels.at(i.text);
@@ -1204,10 +1219,12 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
 
       if (const auto results = label_matcher(lo_hi_operand); results) {
         std::string_view potential_label = results.get<1>();
-        const auto start = std::distance(std::string_view{i.operand2.value}.begin(), potential_label.begin());
+        const auto start = std::distance(std::string_view{ i.operand2.value }.begin(), potential_label.begin());
         spdlog::trace("Label matched: '{}'", potential_label);
         const auto itr1 = new_labels.find(std::string{ potential_label });
-        if (itr1 != new_labels.end()) { i.operand2.value.replace(static_cast<std::size_t>(start), potential_label.size(), itr1->second); }
+        if (itr1 != new_labels.end()) {
+          i.operand2.value.replace(static_cast<std::size_t>(start), potential_label.size(), itr1->second);
+        }
         spdlog::trace("New statement: '{}'", i.operand2.value);
       }
     }
@@ -1217,6 +1234,7 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
       const auto itr1 = new_labels.find(str);
       if (itr1 != new_labels.end()) { i.operand1.value.replace(0, plus, itr1->second); }
     }
+
     if (const auto plus = i.operand2.value.find('+'); plus != std::string::npos) {
       const auto str = i.operand2.value.substr(0, plus);
       const auto itr1 = new_labels.find(str);
@@ -1297,7 +1315,7 @@ enum struct Target { C64 };
 
 int main(const int argc, const char **argv)
 {
-  spdlog::set_level(spdlog::level::trace);
+  spdlog::set_level(spdlog::level::warn);
   const std::map<std::string, Target> targets{ { "C64", Target::C64 } };
   CLI::App app{ "C++ Compiler for 6502 processors" };
 
@@ -1326,7 +1344,6 @@ int main(const int argc, const char **argv)
 
   CLI11_PARSE(app, argc, argv)
 
-  
 
   include_paths.insert(include_paths.begin(), "~/avr-libstdcpp/include");
   const std::string_view warning_flags = "-Wall -Wextra -Wconversion";
