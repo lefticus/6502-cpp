@@ -80,7 +80,7 @@ quit
 
 
   REQUIRE(system(fmt::format(
-            "{} -f {} -t C64 {} {}", mos6502_cpp_executable, source_filename, optimization_level, optimize_6502)
+            "{} {} -t C64 {} {}", mos6502_cpp_executable, source_filename, optimization_level, optimize_6502)
                    .c_str())
           == EXIT_SUCCESS);
   REQUIRE(

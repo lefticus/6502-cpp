@@ -19,6 +19,7 @@
 #include "include/lib1funcs.hpp"
 #include "include/optimizer.hpp"
 #include "include/personalities/c64.hpp"
+#include "include/personalities/x16.hpp"
 
 int to_int(const std::string_view sv)
 {
@@ -1311,12 +1312,12 @@ std::vector<mos6502> run(const Personality &personality, std::istream &input, co
   return new_instructions;
 }
 
-enum struct Target { C64 };
+enum struct Target { C64, X16 };
 
 int main(const int argc, const char **argv)
 {
   spdlog::set_level(spdlog::level::warn);
-  const std::map<std::string, Target> targets{ { "C64", Target::C64 } };
+  const std::map<std::string, Target> targets{ { "C64", Target::C64 }, { "X16", Target::X16 }  };
   CLI::App app{ "C++ Compiler for 6502 processors" };
 
   std::filesystem::path filename{};
@@ -1401,9 +1402,18 @@ int main(const int argc, const char **argv)
   std::ifstream input(avr_output_file);
 
 
-  C64 personality;
 
-  const auto new_instructions = run(personality, input, optimize);
+  const auto new_instructions = [&]() {
+    switch (target) {
+      case Target::C64: 
+        return run(C64{}, input, optimize);
+      case Target::X16:
+        return run(X16{}, input, optimize);
+      default:
+        spdlog::critical("Unhandled target type");
+        return std::vector<mos6502>{};
+    }
+  }();
 
   {
     // make sure file is closed before we try to re-open it with xa

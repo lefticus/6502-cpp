@@ -167,7 +167,7 @@ template<geometry::size Size> static constexpr auto from_pixels_to_petscii(const
 {
   petscii::Graphic<geometry::size{ Size.width / 8, Size.height / 8 }> result{};
 
-  constexpr auto charset = load_charset(uppercase);
+  constexpr auto charset = petscii::load_charset(petscii::uppercase);
 
   for (uint8_t x = 0; x < pixels.width(); x += 8) {
     for (uint8_t y = 0; y < pixels.height(); y += 8) {
